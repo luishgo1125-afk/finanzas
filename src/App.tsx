@@ -772,7 +772,16 @@ function SectionHeader({ emoji, title, total, color, count, onAdd, addLabel }) {
 
 // ─── APP ────────────────────────────────────────────────────────────
 export default function App() {
-  const [data, setData] = useState(SEED);
+  const [data, setData] = useState(() => {
+  try {
+    const saved = localStorage.getItem("finanzas");
+    return saved ? JSON.parse(saved) : SEED;
+  } catch { return SEED; }
+});
+
+useEffect(() => {
+  localStorage.setItem("finanzas", JSON.stringify(data));
+}, [data]);
   const [tab, setTab] = useState('resumen');
   const [confirm, setConfirm] = useState(null); // {section, id, label}
   const [editModal, setEditModal] = useState(null); // {mode:"add"|"edit", section, item, fields, title}
