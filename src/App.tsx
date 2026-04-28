@@ -341,7 +341,7 @@ export default function App() {
 
   const TABS = [
     {id:"resumen",label:"Resumen",emoji:"🏠"},
-    {id:"ingresos",label:"Ingresos",emoji:"💚"},
+    {id:"ingresos",label:"Ingresos",emoji:"💵"},
     {id:"gastos",label:"Gastos",emoji:"📌"},
     {id:"servicios",label:"Servicios",emoji:"⚡"},
     {id:"variables",label:"Variables",emoji:"🛒"},
@@ -404,7 +404,7 @@ export default function App() {
             {/* stat grid */}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
               {[
-                {emoji:"💚",label:"Ingresos",val:totalIngresos,sub:`${data.ingresos.length} fuentes`,c:"#10B981",bg:"#F0FDF4",tab:"ingresos"},
+                {emoji:"💵",label:"Ingresos",val:totalIngresos,sub:`${data.ingresos.length} fuentes`,c:"#10B981",bg:"#F0FDF4",tab:"ingresos"},
                 {emoji:"📌",label:"Gastos fijos",val:totalGastosFijos,sub:`${data.gastos.filter(x=>x.pagado).length}/${data.gastos.length} pagados`,c:"#F59E0B",bg:"#FFFBEB",tab:"gastos"},
                 {emoji:"⚡",label:"Servicios",val:totalServicios,sub:`${data.servicios.filter(x=>x.pagado).length}/${data.servicios.length} pagados`,c:"#6366F1",bg:"#EEF2FF",tab:"servicios"},
                 {emoji:"🛒",label:"Variables",val:totalVariables,sub:`${data.variables.length} gastos`,c:"#EC4899",bg:"#FDF2F8",tab:"variables"},
@@ -440,7 +440,7 @@ export default function App() {
         {/* ═══ INGRESOS ═══ */}
         {tab==="ingresos"&&(
           <div>
-            <SectionHeader emoji="💚" title="Ingresos mensuales" total={totalIngresos} color="#10B981" count={data.ingresos.length} onAdd={()=>openAdd("ingresos")} addLabel="+ Ingreso"/>
+            <SectionHeader emoji="💵" title="Ingresos mensuales" total={totalIngresos} color="#10B981" count={data.ingresos.length} onAdd={()=>openAdd("ingresos")} addLabel="+ Ingreso"/>
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
               {data.ingresos.map(item=><ItemRow key={item.id} item={item} valueColor="#10B981" onEdit={()=>openEdit("ingresos",item)} onDelete={()=>askDelete("ingresos",item.id,item.nombre)}/>)}
               {data.ingresos.length===0&&<Empty msg="Sin ingresos registrados"/>}
