@@ -761,7 +761,7 @@ export default function App() {
 
       {/* ══ HEADER — cleaner, minimal ══ */}
       <header style={{background:T.surface,borderBottom:`1px solid ${T.border}`,position:"sticky",top:0,zIndex:30}}>
-        <div style={{maxWidth:640,margin:"0 auto"}}>
+        <div style={{maxWidth:840,margin:"0 auto"}}>
 
           {/* Top bar: name + actions */}
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px 10px"}}>
