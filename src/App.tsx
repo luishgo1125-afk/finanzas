@@ -764,12 +764,12 @@ export default function App() {
         <div style={{maxWidth:840,margin:"0 auto"}}>
 
           {/* Top bar: name + actions */}
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px 10px"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 18px 12px"}}>
             <div>
-              <div style={{fontSize:9,letterSpacing:3,color:T.textSub,textTransform:"uppercase",marginBottom:1}}>
+              <div style={{fontSize:11,letterSpacing:3,color:T.textSub,textTransform:"uppercase",marginBottom:1}}>
                 {hoyMes()}
               </div>
-              <div style={{fontFamily:"'DM Serif Display',serif",fontSize:17,color:T.text,fontWeight:400}}>
+              <div style={{fontFamily:"'DM Serif Display',serif",fontSize:19,color:T.text,fontWeight:400}}>
                 Hola, <em style={{color:T.accent}}>{session.name.split(" ")[0]}</em>
               </div>
             </div>
