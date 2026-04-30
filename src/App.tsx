@@ -673,7 +673,11 @@ export default function App() {
   const pendiente = (GFtot-GFpag)+(SVtot-SVpag)+(TKtot-TKpag);
   const egReal  = GFpag+SVpag+TKpag+V;
   const egProj  = GFtot+SVtot+TKtot+V;
-  const arrastre = data.saldoArrastre||0;
+  // Si saldoArrastre es 0 (meses cerrados antes de esta función),
+  // toma el balanceReal del mes más reciente del historial como arrastre inicial
+  const arrastre = data.saldoArrastre !== undefined && data.saldoArrastre !== 0
+    ? data.saldoArrastre
+    : (data.historial && data.historial.length > 0 ? (data.historial[0].balanceReal || 0) : 0);
   const balReal = I-egReal+arrastre;
   const balProj = I-egProj;
 
