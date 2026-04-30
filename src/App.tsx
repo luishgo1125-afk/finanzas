@@ -9,7 +9,7 @@ const hoyMes = () => { const d=new Date(); return `${MESES[d.getMonth()]} ${d.ge
 const hoyStr = () => new Date().toISOString().slice(0,10);
 const CATS = ["🍔 Comida","⛽ Gasolina","👕 Ropa","🎬 Entretenimiento","🏥 Salud","✈ Viajes","🛒 Super","🏠 Hogar","📱 Tecnología","🎓 Educación","💊 Farmacia","🐾 Mascotas"];
 const METODOS = ["💵 Efectivo","💳 Tarjeta","🔄 Transferencia"];
-const SEED_DATA = () => ({ ingresos:[], gastos:[], servicios:[], tarjetas:[], variables:[], historial:[] });
+const SEED_DATA = () => ({ ingresos:[], gastos:[], servicios:[], tarjetas:[], variables:[], historial:[], saldoArrastre:0 });
 
 // Colores por categoría para la gráfica
 const CAT_COLORS = {
@@ -503,7 +503,7 @@ function SecHead({T, title, total, color, count, onAdd, addLabel, sub}) {
 }
 
 // ─── BALANCE CARD ─────────────────────────────────────────────────────────────
-function BalanceCard({T, totalIngresos, balanceReal, balanceProyectado, pendienteTotal, egresosReales, egresosProyectados}) {
+function BalanceCard({T, totalIngresos, balanceReal, balanceProyectado, pendienteTotal, egresosReales, egresosProyectados, saldoArrastre}) {
   const [v, setV] = useState("real");
   const isReal = v==="real";
   const bal = isReal ? balanceReal : balanceProyectado;
@@ -538,10 +538,21 @@ function BalanceCard({T, totalIngresos, balanceReal, balanceProyectado, pendient
       <div style={{height:3,borderRadius:99,background:T.border,overflow:"hidden",marginBottom:10}}>
         <div style={{width:`${pct}%`,height:"100%",borderRadius:99,background:pos?T.accent:T.red,transition:"width .6s ease"}}/>
       </div>
-      <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:T.textSub}}>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:T.textSub,marginBottom: saldoArrastre!==0?6:0}}>
         <span>Ingresos: <span style={{color:T.green,fontWeight:500}}>{fmt(totalIngresos)}</span></span>
         <span>Egresos: <span style={{color:T.red,fontWeight:500}}>{fmt(eg)}</span></span>
       </div>
+      {isReal&&saldoArrastre!==0&&(
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+          marginTop:6,paddingTop:6,borderTop:`1px solid ${T.border}`}}>
+          <span style={{fontSize:11,color:T.textSub}}>
+            {saldoArrastre>0?"✚ Saldo anterior":"▼ Déficit anterior"}
+          </span>
+          <span style={{fontSize:11,fontWeight:600,color:saldoArrastre>0?T.green:T.red}}>
+            {saldoArrastre>0?"+":""}{fmt(saldoArrastre)}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -662,7 +673,8 @@ export default function App() {
   const pendiente = (GFtot-GFpag)+(SVtot-SVpag)+(TKtot-TKpag);
   const egReal  = GFpag+SVpag+TKpag+V;
   const egProj  = GFtot+SVtot+TKtot+V;
-  const balReal = I-egReal;
+  const arrastre = data.saldoArrastre||0;
+  const balReal = I-egReal+arrastre;
   const balProj = I-egProj;
 
   // ─ ACTIONS ─
@@ -730,12 +742,14 @@ export default function App() {
 
   const cerrarMes = () => {
     const snap={mes:hoyMes(),ingresos:I,gastosFijos:GFtot,servicios:SVtot,variables:V,tarjetas:TKtot,
-      egresosReales:egReal,balanceReal:balReal,balanceProyectado:balProj,detVar:[...data.variables]};
+      egresosReales:egReal,balanceReal:balReal,balanceProyectado:balProj,
+      saldoArrastre:data.saldoArrastre||0,detVar:[...data.variables]};
     upd(d=>({...d,historial:[snap,...d.historial],
       gastos:d.gastos.map(x=>({...x,pagado:false})),
       servicios:d.servicios.map(x=>({...x,pagado:false})),
       tarjetas:d.tarjetas.map(x=>({...x,pagado:false,saldoCorte:null,_saldoCortePrev:undefined})),
       variables:[],
+      saldoArrastre:balReal,
     }));
     setClosingMonth(false);setTab("tarjetas");
   };
@@ -815,7 +829,8 @@ export default function App() {
         {tab==="resumen"&&(
           <div style={{display:"flex",flexDirection:"column",gap:12}} className="fade-in">
             <BalanceCard T={T} totalIngresos={I} balanceReal={balReal} balanceProyectado={balProj}
-              pendienteTotal={pendiente} egresosReales={egReal} egresosProyectados={egProj}/>
+              pendienteTotal={pendiente} egresosReales={egReal} egresosProyectados={egProj}
+              saldoArrastre={arrastre}/>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
               <SummaryCard T={T} icon="💰" label="Ingresos" value={I} color={T.green} sub={`${data.ingresos.length} fuentes`} onClick={()=>setTab("ingresos")}/>
               <SummaryCard T={T} icon="📋" label="Gastos fijos" value={GFtot} color={T.amber} sub={`${data.gastos.filter(x=>x.pagado).length}/${data.gastos.length} pagados`} onClick={()=>setTab("gastos")}/>
