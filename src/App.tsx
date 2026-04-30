@@ -480,7 +480,7 @@ function BalanceCard({T, totalIngresos, balanceReal, balanceProyectado, pendient
       </div>
       {/* Label */}
       <div style={{fontSize:9,color:T.textSub,letterSpacing:2,textTransform:"uppercase",marginBottom:6}}>
-        {isReal?"Disponible después de pagos realizados":"Lo que quedaría pagando todo"}
+        {isReal?"Disponible ahora":"Si pagas todo"}
       </div>
       {/* Big balance number — the hero */}
       <div style={{
@@ -651,7 +651,7 @@ export default function App() {
   const TKdeuda = data.tarjetas.reduce((s,x)=>s+x.saldo,0);
   const GFpag = data.gastos.filter(x=>x.pagado).reduce((s,x)=>s+x.monto,0);
   const SVpag = data.servicios.filter(x=>x.pagado).reduce((s,x)=>s+x.monto,0);
-  const TKpag = data.tarjetas.filter(x=>x.pagado).reduce((s,x)=>s+(x.saldoCorte||0),0);
+  const TKpag = data.tarjetas.filter(x=>x.pagado).reduce((s,x)=>s+(x._saldoCortePrev||x.saldoCorte||0),0);
   const pendiente = (GFtot-GFpag)+(SVtot-SVpag)+(TKtot-TKpag);
   const egReal = GFpag+SVpag+TKpag+V;
   const egProj = GFtot+SVtot+TKtot+V;
