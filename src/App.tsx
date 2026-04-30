@@ -684,7 +684,7 @@ export default function App() {
     const enriched = section==="tarjetas"
       ? {...form, _saldoCortePrev: Number(form.saldoCorte)||0}
       : form;
-    if(mode==="add") upd(d=>({...d,[section]:[...d[section],{...form,id:uid(),pagado:false}]}));
+    if(mode==="add") upd(d=>({...d,[section]:[...d[section],{...enriched,id:uid(),pagado:false}]}));
     else upd(d=>({...d,[section]:d[section].map(x=>x.id===item.id?{...x,...form}:x)}));
     setSheet(null);
   };
@@ -723,8 +723,10 @@ export default function App() {
       fields:[{key:"saldoCorte",label:"Saldo a pagar en este corte ($)",type:"number",req:true,ph:"0"}],initial:{}});
   };
   const saveSetCorte = (form) => {
+    const tid = sheet.tarjetaId;
     const amt=Number(form.saldoCorte)||0;
-    upd(d=>({...d, tarjetas: d.tarjetas.map(x=> x.id!==tid ? x : {...x, saldoCorte: Number(form.saldoCorte)})}));
+    upd(d=>({...d, tarjetas: d.tarjetas.map(x=>
+    x.id!==tid ? x : {...x, saldoCorte:amt, _saldoCortePrev:amt} 
     setSheet(null);
   };
   // Al cerrar mes: tarjetas quedan con saldoCorte=null para que el usuario lo introduzca manualmente
