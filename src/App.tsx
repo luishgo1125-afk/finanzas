@@ -648,11 +648,11 @@ export default function App() {
   const V = data.variables.reduce((s,x)=>s+x.monto,0);
   const GFtot = data.gastos.reduce((s,x)=>s+x.monto,0);
   const SVtot = data.servicios.reduce((s,x)=>s+x.monto,0);
-  const TKtot = data.tarjetas.reduce((s,x)=>s+(x.saldoCorte||0),0);
+  const TKtot  =data.tarjetas.reduce((s,x)=>s+(x.pagado?(x._saldoCortePrev||0):(x.saldoCorte||0)),0);
   const TKdeuda = data.tarjetas.reduce((s,x)=>s+x.saldo,0);
   const GFpag = data.gastos.filter(x=>x.pagado).reduce((s,x)=>s+x.monto,0);
   const SVpag = data.servicios.filter(x=>x.pagado).reduce((s,x)=>s+x.monto,0);
-  const TKpag = data.tarjetas.filter(x=>x.pagado).reduce((s,x)=>s+(x._saldoCortePrev||x.saldoCorte||0),0);
+  const TKpag = data.tarjetas.filter(x=>x.pagado).reduce((s,x)=>s+(x._saldoCortePrev||0),0);
   const pendiente = (GFtot-GFpag)+(SVtot-SVpag)+(TKtot-TKpag);
   const egReal = GFpag+SVpag+TKpag+V;
   const egProj = GFtot+SVtot+TKtot+V;
@@ -679,7 +679,11 @@ export default function App() {
     }
   };
   const save = form => {
-    const {mode,section,item} = sheet;
+    const {mode,section,item}=sheet;
+    // Para tarjetas: sincronizar _saldoCortePrev con el saldoCorte capturado
+    const enriched = section==="tarjetas"
+      ? {...form, _saldoCortePrev: Number(form.saldoCorte)||0}
+      : form;
     if(mode==="add") upd(d=>({...d,[section]:[...d[section],{...form,id:uid(),pagado:false}]}));
     else upd(d=>({...d,[section]:d[section].map(x=>x.id===item.id?{...x,...form}:x)}));
     setSheet(null);
@@ -719,7 +723,7 @@ export default function App() {
       fields:[{key:"saldoCorte",label:"Saldo a pagar en este corte ($)",type:"number",req:true,ph:"0"}],initial:{}});
   };
   const saveSetCorte = (form) => {
-    const tid = sheet.tarjetaId;
+    const amt=Number(form.saldoCorte)||0;
     upd(d=>({...d, tarjetas: d.tarjetas.map(x=> x.id!==tid ? x : {...x, saldoCorte: Number(form.saldoCorte)})}));
     setSheet(null);
   };
