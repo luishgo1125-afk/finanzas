@@ -466,6 +466,7 @@ function BalanceCard({T, totalIngresos, balanceReal, balanceProyectado, pendient
   const bal = isReal ? balanceReal : balanceProyectado;
   const eg = isReal ? egresosReales : egresosProyectados;
   const pos = bal>=0;
+  const pct=Math.min(100,Math.max(0,totalIngresos>0?(eg/totalIngresos)*100:0));
   return (
     <div style={{background:T.surface,border:`1px solid ${T.border2}`,borderRadius:18,padding:"20px 20px 18px",marginBottom:4}}>
       {/* Toggle pills */}
