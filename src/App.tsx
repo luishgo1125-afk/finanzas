@@ -95,17 +95,18 @@ const saveCloudUser = async (id, email, name, pass, appData) => {
   } catch(e){ console.warn("saveCloudUser error:", e); }
 };
 
-const saveCloudData = async (id, email, appData) => {
+const saveCloudData = async (id, email, appData, userName, userPass) => {
   localStorage.setItem(`fin_data_${id}`, JSON.stringify(appData));
   try {
-    // Obtener nombre y pass del localStorage para incluirlos en el upsert
+    // Intentar obtener pass y name del localStorage
     const users = getUsers();
     const localUser = Object.values(users).find(u=>u.id===id);
-    const extra = localUser ? {name:localUser.name, pass:localUser.pass} : {};
-    const {error} = await sb.from("user_data").upsert(
-      {id, email, ...extra, data: appData, updated_at: new Date().toISOString()},
-      {onConflict: "id"}
-    );
+    const name = userName || localUser?.name;
+    const pass = userPass || localUser?.pass;
+    const payload = {id, email, data: appData, updated_at: new Date().toISOString()};
+    if(name) payload.name = name;
+    if(pass) payload.pass = pass;
+    const {error} = await sb.from("user_data").upsert(payload, {onConflict: "id"});
     if(error) console.warn("saveCloudData:", error.message);
     else console.log("✓ Supabase sync OK");
   } catch(e){ console.warn("saveCloudData error:", e); }
@@ -1670,8 +1671,10 @@ export default function App() {
   // Guardar en Supabase + localStorage (doble respaldo) cuando cambian los datos
   useEffect(()=>{
     if(!session||!data) return;
-    saveUserData(session.id, data); // localStorage como caché local
-    saveCloudData(session.id, session.email, data);
+    saveUserData(session.id, data);
+    const users = getUsers();
+    const localUser = users[session.email];
+    saveCloudData(session.id, session.email, data, localUser?.name, localUser?.pass);
   },[data,session]);
 
   // ── Cierre automático al cambiar de mes ──
@@ -2159,7 +2162,7 @@ export default function App() {
           onImport={()=>document.getElementById('import-file-input').click()}
         />
       )}
-      {showMenu&&<div onClick={()=>setShowMenu(false)} style={{position:"fixed",inset:0,zIndex:29}}/>}
+      {showMenu&&<div onClick={()=>setShowMenu(false)} style={{position:"fixed",inset:0,zIndex:29}}/>}}
 
       {/* Hidden file input for import */}
       <input id="import-file-input" type="file" accept=".json,.csv" style={{display:"none"}}
