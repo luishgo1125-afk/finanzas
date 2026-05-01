@@ -1072,6 +1072,115 @@ const exportJSON = (data) => {
   a.click();
 };
 
+// ─── IMPORT HELPERS ──────────────────────────────────────────────────────────
+const parseImportFile = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = e => {
+    const text = e.target.result;
+    const ext = file.name.split('.').pop().toLowerCase();
+    if(ext === 'json') {
+      try {
+        const parsed = JSON.parse(text);
+        // Validar que tiene la estructura correcta
+        if(parsed && typeof parsed === 'object' && ('ingresos' in parsed || 'gastos' in parsed)) {
+          resolve({type:'json', data: parsed});
+        } else {
+          reject('El archivo JSON no tiene el formato correcto de Mi Capital.');
+        }
+      } catch(e) { reject('El archivo JSON está dañado o no es válido.'); }
+    } else if(ext === 'csv') {
+      try {
+        const lines = text.split('').filter(l=>l.trim());
+        const headers = lines[0].split(',').map(h=>h.replace(/^"|"$/g,'').trim());
+        const rows = lines.slice(1).map(line=>{
+          const cols = [];
+          let cur='', inQ=false;
+          for(let i=0;i<line.length;i++){
+            if(line[i]==='"'){ inQ=!inQ; }
+            else if(line[i]===','&&!inQ){ cols.push(cur); cur=''; }
+            else { cur+=line[i]; }
+          }
+          cols.push(cur);
+          const obj={};
+          headers.forEach((h,i)=>obj[h]=cols[i]||'');
+          return obj;
+        }).filter(r=>r.Nombre||r.nombre);
+        resolve({type:'csv', rows});
+      } catch(e) { reject('El archivo CSV está dañado o no es válido.'); }
+    } else {
+      reject('Formato no soportado. Usa .json o .csv');
+    }
+  };
+  reader.onerror = () => reject('Error al leer el archivo.');
+  reader.readAsText(file, 'UTF-8');
+});
+
+// ─── IMPORT MODAL ─────────────────────────────────────────────────────────────
+function ImportModal({T, importing, onConfirm, onCancel}) {
+  const {type, data, rows} = importing;
+  const isJson = type==='json';
+
+  // Preview de lo que se va a importar
+  const preview = isJson ? [
+    {label:'Ingresos', count: data.ingresos?.length||0},
+    {label:'Gastos fijos', count: data.gastos?.length||0},
+    {label:'Servicios', count: data.servicios?.length||0},
+    {label:'Variables', count: data.variables?.length||0},
+    {label:'Tarjetas', count: data.tarjetas?.length||0},
+    {label:'Meses en historial', count: data.historial?.length||0},
+  ] : [
+    {label:'Filas CSV encontradas', count: rows?.length||0},
+    {label:'Variables a importar', count: rows?.filter(r=>(r.Tipo||r.tipo)==='Variable').length||0},
+    {label:'Ingresos a importar', count: rows?.filter(r=>(r.Tipo||r.tipo)==='Ingreso').length||0},
+  ];
+
+  return (
+    <>
+      <div onClick={onCancel} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:40}}/>
+      <div className="fade-up" style={{
+        position:"fixed",left:0,right:0,bottom:0,zIndex:50,
+        background:T.surface,borderRadius:"18px 18px 0 0",
+        border:`1px solid ${T.border}`,padding:"20px 18px 36px",
+        maxWidth:520,margin:"0 auto",maxHeight:"80vh",overflowY:"auto",
+        boxShadow:"0 -8px 32px rgba(0,0,0,.2)"}}>
+        <div style={{width:36,height:3,borderRadius:2,background:T.border2,margin:"0 auto 18px"}}/>
+        <h3 style={{fontFamily:"'DM Serif Display',serif",fontSize:20,color:T.text,marginBottom:6}}>
+          {isJson ? "Restaurar datos" : "Importar CSV"}
+        </h3>
+        <p style={{fontSize:12,color:T.textSub,marginBottom:18,lineHeight:1.6}}>
+          {isJson
+            ? "⚠️ Esto reemplazará TODOS tus datos actuales con los del archivo. Esta acción no se puede deshacer."
+            : "Se agregarán las transacciones del CSV a tus datos actuales sin borrar nada."}
+        </p>
+
+        {/* Preview */}
+        <div style={{background:T.card,borderRadius:12,padding:"12px 14px",marginBottom:18}}>
+          {preview.filter(p=>p.count>0).map((p,i)=>(
+            <div key={i} style={{display:"flex",justifyContent:"space-between",
+              padding:"6px 0",borderBottom:i<preview.length-1?`1px solid ${T.border}`:"none"}}>
+              <span style={{fontSize:13,color:T.textMid}}>{p.label}</span>
+              <span style={{fontSize:13,fontWeight:600,color:T.text}}>{p.count}</span>
+            </div>
+          ))}
+        </div>
+
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={onCancel}
+            style={{flex:1,background:"transparent",border:`1px solid ${T.border2}`,
+              borderRadius:10,padding:"12px 0",fontSize:13,color:T.textMid}}>
+            Cancelar
+          </button>
+          <button onClick={onConfirm}
+            style={{flex:2,background:isJson?T.red:T.accent,border:"none",
+              borderRadius:10,padding:"12px 0",fontSize:13,fontWeight:600,color:"#fff"}}>
+            {isJson?"Sí, restaurar todo":"Importar transacciones"}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ─── VARS TAB (con búsqueda, orden y editar) ──────────────────────────────────
 function VarsTab({T, data, V, onAdd, onEdit, onDelete}) {
   const [busqueda, setBusqueda] = useState("");
@@ -1351,6 +1460,7 @@ export default function App() {
   const [sheet, setSheet]           = useState(null);
   const [closingMonth, setClosingMonth] = useState(false);
   const [showMenu, setShowMenu]     = useState(false);
+  const [importing, setImporting]   = useState(null); // null | {type,preview,raw}
   const [pinLocked, setPinLocked]   = useState(false);  // muestra PinScreen
   const [settingPin, setSettingPin] = useState(false);  // muestra SetPinScreen
 
@@ -1596,6 +1706,11 @@ export default function App() {
                       style={{width:"100%",background:"transparent",border:"none",padding:"11px 14px",
                         fontSize:13,color:T.textMid,textAlign:"left",borderBottom:`1px solid ${T.border}`}}>
                       📦 Exportar JSON
+                    </button>
+                    <button onClick={()=>{setShowMenu(false);document.getElementById('import-file-input').click();}}
+                      style={{width:"100%",background:"transparent",border:"none",padding:"11px 14px",
+                        fontSize:13,color:T.textMid,textAlign:"left",borderBottom:`1px solid ${T.border}`}}>
+                      📂 Importar JSON / CSV
                     </button>
                     <button onClick={logout} style={{width:"100%",background:"transparent",border:"none",
                       padding:"11px 14px",fontSize:13,color:T.red,textAlign:"left"}}>Cerrar sesión</button>
@@ -1862,6 +1977,57 @@ export default function App() {
       {sheet&&<Sheet T={T} title={sheet.title} fields={sheet.fields} initial={sheet.initial||{}}
         onSave={sheetSave} onClose={()=>setSheet(null)}/>}
       {showMenu&&<div onClick={()=>setShowMenu(false)} style={{position:"fixed",inset:0,zIndex:29}}/>}
+
+      {/* Hidden file input for import */}
+      <input id="import-file-input" type="file" accept=".json,.csv" style={{display:"none"}}
+        onChange={async e=>{
+          const file = e.target.files?.[0];
+          if(!file) return;
+          e.target.value = ""; // reset so same file can be picked again
+          try {
+            const result = await parseImportFile(file);
+            setImporting(result);
+          } catch(err) {
+            alert(typeof err==='string' ? err : 'Error al leer el archivo.');
+          }
+        }}/>
+
+      {/* Import confirmation modal */}
+      {importing&&(
+        <ImportModal T={T} importing={importing}
+          onCancel={()=>setImporting(null)}
+          onConfirm={()=>{
+            if(importing.type==='json'){
+              // Restaurar TODOS los datos
+              const newData = {...SEED_DATA(), ...importing.data};
+              upd(()=>newData);
+              sbSave(session.id, session.email, newData);
+            } else {
+              // Importar CSV — agregar transacciones a las existentes
+              const CATS_MAP = {"Ingreso":"ingresos","Gasto fijo":"gastos","Servicio":"servicios","Variable":"variables"};
+              upd(d=>{
+                const next = {...d};
+                importing.rows.forEach(row=>{
+                  const tipo = row.Tipo||row.tipo||"";
+                  const section = CATS_MAP[tipo];
+                  if(!section) return;
+                  const item = {
+                    id: uid(),
+                    nombre: row.Nombre||row.nombre||"",
+                    monto: Number(row.Monto||row.monto||0),
+                    categoria: row.Categoría||row.categoria||row["Categoría"]||"",
+                    fecha: row.Fecha||row.fecha||"",
+                    nota: row.Nota||row.nota||"",
+                    pagado: false,
+                  };
+                  if(item.nombre && item.monto) next[section] = [...(next[section]||[]), item];
+                });
+                return next;
+              });
+            }
+            setImporting(null);
+          }}/>
+      )}
     </div>
   );
 }
