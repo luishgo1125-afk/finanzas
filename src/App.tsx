@@ -74,11 +74,36 @@ const checkEmailExists = async (email) => {
   } catch(e){ return false; }
 };
 
-const saveCloudData = async (id, email, appData) => {
+// Buscar usuario por email en Supabase
+const findCloudUser = async (email) => {
+  try {
+    const {data, error} = await sb.from("user_data").select("id, email, pass, name").eq("email", email).single();
+    if(error) return null;
+    return data;
+  } catch(e){ return null; }
+};
+
+// Guardar usuario con nombre y contraseña en Supabase
+const saveCloudUser = async (id, email, name, pass, appData) => {
   localStorage.setItem(`fin_data_${id}`, JSON.stringify(appData));
   try {
     const {error} = await sb.from("user_data").upsert(
-      {id, email, data: appData, updated_at: new Date().toISOString()},
+      {id, email, name, pass, data: appData, updated_at: new Date().toISOString()},
+      {onConflict: "id"}
+    );
+    if(error) console.warn("saveCloudUser:", error.message);
+  } catch(e){ console.warn("saveCloudUser error:", e); }
+};
+
+const saveCloudData = async (id, email, appData) => {
+  localStorage.setItem(`fin_data_${id}`, JSON.stringify(appData));
+  try {
+    // Obtener nombre y pass del localStorage para incluirlos en el upsert
+    const users = getUsers();
+    const localUser = Object.values(users).find(u=>u.id===id);
+    const extra = localUser ? {name:localUser.name, pass:localUser.pass} : {};
+    const {error} = await sb.from("user_data").upsert(
+      {id, email, ...extra, data: appData, updated_at: new Date().toISOString()},
       {onConflict: "id"}
     );
     if(error) console.warn("saveCloudData:", error.message);
@@ -493,18 +518,32 @@ function AuthScreen({T, onLogin}) {
 
   const handleEmail = async () => {
     setErr("");
-    const users = getUsers();
     if(!email.trim()||!pass.trim()){setErr("Completa todos los campos.");return;}
     if(!emailValido(email)){setErr("Correo inválido. Ej: nombre@gmail.com");return;}
-    const key=email.toLowerCase().trim();
-    const user=users[key];
+    const key = email.toLowerCase().trim();
+    setErr("Verificando...");
+
+    // 1. Buscar en Supabase primero (funciona en cualquier dispositivo)
+    const cloudUser = await findCloudUser(key);
+    if(cloudUser) {
+      if(cloudUser.pass !== pass){setErr("Correo o contraseña incorrectos.");return;}
+      // Guardar usuario localmente para próximos logins offline
+      const users = getUsers();
+      users[key] = {id:cloudUser.id, name:cloudUser.name||key, email:key, pass};
+      saveUsers(users);
+      const data = await loadCloudData(cloudUser.id) || getUserData(cloudUser.id) || SEED_DATA();
+      const s = {id:cloudUser.id, name:cloudUser.name||key, email:key};
+      saveSession(s); onLogin(s, data);
+      return;
+    }
+
+    // 2. Fallback: buscar en localStorage (dispositivo original)
+    const users = getUsers();
+    const user = users[key];
     if(!user||user.pass!==pass){setErr("Correo o contraseña incorrectos.");return;}
-    // Cargar desde Supabase primero, luego local como fallback
-    const sbData = await loadCloudData(user.id);
-    const migratedData = null; // migración automática al guardar
-    const data = sbData || getUserData(user.id) || SEED_DATA();
-    const s={id:user.id,name:user.name,email:key};
-    saveSession(s); onLogin(s,data);
+    const data = await loadCloudData(user.id) || getUserData(user.id) || SEED_DATA();
+    const s = {id:user.id, name:user.name, email:key};
+    saveSession(s); onLogin(s, data);
   };
 
   const handleRegister = async () => {
@@ -524,8 +563,9 @@ function AuthScreen({T, onLogin}) {
     users[key]={id,name:name.trim(),email:key,pass};
     const seedData = SEED_DATA();
     saveUsers(users); saveUserData(id, seedData);
-    await saveCloudData(id, key, seedData);
-    const s={id,name:users[key].name,email:key};
+    // Guardar en Supabase incluyendo nombre y contraseña para login desde otros dispositivos
+    await saveCloudUser(id, key, name.trim(), pass, seedData);
+    const s={id, name:name.trim(), email:key};
     saveSession(s); onLogin(s, seedData);
   };
 
@@ -2120,7 +2160,6 @@ export default function App() {
         />
       )}
       {showMenu&&<div onClick={()=>setShowMenu(false)} style={{position:"fixed",inset:0,zIndex:29}}/>}
-
       {/* Hidden file input for import */}
       <input id="import-file-input" type="file" accept=".json,.csv" style={{display:"none"}}
         onChange={async e=>{
