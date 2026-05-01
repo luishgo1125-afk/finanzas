@@ -105,7 +105,7 @@ const makeCSS = (T) => `
   .fade-in { animation: fadeIn .2s ease both; }
   details summary { list-style:none; cursor:pointer; }
   details summary::-webkit-details-marker { display:none; }
-  .tab-pill:hover { background:${T.card}!important; }
+  .tab-pill:hover { background:${T.card}!important; -webkit-transform:translateZ(0); transform:translateZ(0); }
   .summary-card:hover { transform:translateY(-1px); box-shadow:0 4px 16px rgba(0,0,0,.08); }
   .summary-card { transition:transform .2s, box-shadow .2s, border-color .2s; }
 `;
@@ -746,7 +746,12 @@ function ItemRow({T, item, valueColor, showPaid=false, onEdit, onDelete, onToggl
       </div>
       <div style={{fontFamily:"'DM Serif Display',serif",fontSize:15,color:vc,flexShrink:0}}>{fmt(item.monto)}</div>
       {showPaid&&<button onClick={onToggle} style={{background:"transparent",border:`1px solid ${T.border}`,
-        borderRadius:7,padding:"5px 8px",fontSize:11,color:T.textSub}}>{item.pagado?'<svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M3 5H8M3 5L5 3M3 5L5 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>':'<svg width="11" height="11" viewBox="0 0 11 11" fill="none"><polyline points="2,6 4.5,8.5 9,3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>'}</button>}
+        borderRadius:7,padding:"5px 8px",fontSize:11,color:T.textSub}}>
+          {item.pagado
+            ? <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M3 5H8M3 5L5 3M3 5L5 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            : <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><polyline points="2,6 4.5,8.5 9,3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          }
+        </button>}
       <button onClick={onEdit} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:7,padding:"5px 8px",fontSize:11,color:T.textSub}}><svg width="11" height="11" viewBox="0 0 11 11" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7.5 1.5L9.5 3.5L3.5 9.5H1.5V7.5L7.5 1.5Z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg></button>
       <button onClick={onDelete} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:7,padding:"5px 8px",fontSize:11,color:T.textSub}}><svg width="11" height="11" viewBox="0 0 11 11" fill="none" xmlns="http://www.w3.org/2000/svg"><line x1="2" y1="2" x2="9" y2="9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/><line x1="9" y1="2" x2="2" y2="9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg></button>
     </div>
@@ -1550,7 +1555,7 @@ export default function App() {
       <link href={FONTS} rel="stylesheet"/>
       <style>{makeCSS(T)}</style>
 
-      <header style={{background:T.surface,borderBottom:`1px solid ${T.border}`,position:"sticky",top:0,zIndex:30}}>
+      <header style={{background:T.surface,borderBottom:`1px solid ${T.border}`,position:"sticky",WebkitPosition:"sticky",top:0,zIndex:30}}>
         <div style={{maxWidth:640,margin:"0 auto"}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px 10px"}}>
             <div>
@@ -1602,11 +1607,16 @@ export default function App() {
           <div style={{display:"flex",gap:4,overflowX:"auto",padding:"0 12px 10px",scrollbarWidth:"none"}}>
             {TABS.map(t=>(
               <button key={t.id} className="tab-pill" onClick={()=>{setTab(t.id);setShowMenu(false);}}
-                style={{background:tab===t.id?T.text:"transparent",
+                style={{
+                  background:tab===t.id?T.text:"transparent",
                   border:tab===t.id?`1px solid ${T.text}`:`1px solid ${T.border}`,
                   borderRadius:99,padding:"6px 14px",fontSize:11,fontWeight:tab===t.id?600:400,
-                  color:tab===t.id?T.bg:T.textSub,whiteSpace:"nowrap",transition:"all .18s",
-                  flexShrink:0,fontFamily:"'DM Sans',sans-serif",letterSpacing:.2}}>
+                  color:tab===t.id?T.bg:T.textSub,whiteSpace:"nowrap",
+                  flexShrink:0,fontFamily:"'DM Sans',sans-serif",letterSpacing:.2,
+                  WebkitTransform:"translateZ(0)",transform:"translateZ(0)",
+                  willChange:"background,color,border",
+                  transition:"none",
+                }}>
                 {t.l}
               </button>
             ))}
