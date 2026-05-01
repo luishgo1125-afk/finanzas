@@ -2117,7 +2117,7 @@ export default function App() {
           onImport={()=>document.getElementById('import-file-input').click()}
         />
       )}
-      {showMenu&&<div onClick={()=>setShowMenu(false)} style={{position:"fixed",inset:0,zIndex:29}}/>}}
+      {showMenu&&<div onClick={()=>setShowMenu(false)} style={{position:"fixed",inset:0,zIndex:29}}/>}
 
       {/* Hidden file input for import */}
       <input id="import-file-input" type="file" accept=".json,.csv" style={{display:"none"}}
