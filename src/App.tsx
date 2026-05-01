@@ -64,6 +64,15 @@ const loadCloudData = async (id) => {
   } catch(e) { return null; }
 };
 
+const checkEmailExists = async (email) => {
+  try {
+    const res = await fetch(`${SB_URL}/rest/v1/user_data?email=eq.${encodeURIComponent(email)}&select=id`,{headers:sbH});
+    if(!res.ok) return false;
+    const rows = await res.json();
+    return rows.length > 0;
+  } catch(e){ return false; }
+};
+
 const saveCloudData = async (id, email, data) => {
   localStorage.setItem(`fin_data_${id}`, JSON.stringify(data));
   try {
@@ -504,6 +513,11 @@ function AuthScreen({T, onLogin}) {
     if(pass.length<6){setErr("La contraseña debe tener al menos 6 caracteres.");return;}
     const key=email.toLowerCase().trim();
     if(users[key]){setErr("Ya existe una cuenta con ese correo.");return;}
+    // Verificar también en Supabase (cubre otros dispositivos)
+    setErr("Verificando disponibilidad...");
+    const existsCloud = await checkEmailExists(key);
+    if(existsCloud){setErr("Ya existe una cuenta con ese correo en otro dispositivo.");return;}
+    setErr("");
     const id=uid();
     users[key]={id,name:name.trim(),email:key,pass};
     const seedData = SEED_DATA();
@@ -1141,7 +1155,7 @@ const parseImportFile = (file) => new Promise((resolve, reject) => {
   };
   reader.onerror = () => reject("Error al leer el archivo.");
   reader.readAsText(file,"UTF-8");
-})
+});
 // ─── IMPORT MODAL ─────────────────────────────────────────────────────────────
 function ImportModal({T, importing, onConfirm, onCancel}) {
   const {type, data, rows} = importing;
@@ -1480,6 +1494,107 @@ function AhorroSection({T, ahorro, disponible, meta, onMover, onRetirar, onSetMe
   );
 }
 
+
+// ─── CONFIG SCREEN ────────────────────────────────────────────────────────────
+function ConfigScreen({T, session, data, onClose, onChangePwd, onChangePin, onImport, onExportCSV, onExportJSON}) {
+  const [section, setSection] = useState(null); // null | "password"
+  const [oldPass, setOldPass] = useState("");
+  const [newPass, setNewPass] = useState("");
+  const [newPass2, setNewPass2] = useState("");
+  const [err, setErr] = useState("");
+  const [ok, setOk] = useState("");
+  const inp = {width:"100%",background:T.card,border:`1px solid ${T.border2}`,borderRadius:10,
+    padding:"12px 14px",fontSize:15,color:T.text,boxSizing:"border-box"};
+
+  const handleChangePwd = () => {
+    setErr(""); setOk("");
+    const users = getUsers();
+    const user = users[session.email];
+    if(!user){ setErr("Error: usuario no encontrado."); return; }
+    if(user.pass !== oldPass){ setErr("La contraseña actual es incorrecta."); return; }
+    if(newPass.length<6){ setErr("La nueva contraseña debe tener al menos 6 caracteres."); return; }
+    if(newPass !== newPass2){ setErr("Las contraseñas nuevas no coinciden."); return; }
+    users[session.email].pass = newPass;
+    saveUsers(users);
+    setOk("Contraseña actualizada correctamente.");
+    setOldPass(""); setNewPass(""); setNewPass2("");
+    setTimeout(()=>setSection(null),1500);
+  };
+
+  const menuBtn = (label, icon, onClick, color) => (
+    <button onClick={onClick}
+      style={{width:"100%",background:T.card,border:`1px solid ${T.border}`,borderRadius:12,
+        padding:"14px 16px",display:"flex",alignItems:"center",gap:12,marginBottom:8,cursor:"pointer"}}>
+      <span style={{fontSize:18,width:24,textAlign:"center"}}>{icon}</span>
+      <span style={{fontSize:13,fontWeight:500,color:color||T.text,flex:1,textAlign:"left"}}>{label}</span>
+      <svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1L6 6L1 11" stroke={T.border2} strokeWidth="1.5" strokeLinecap="round"/></svg>
+    </button>
+  );
+
+  return (
+    <>
+      <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:40}}/>
+      <div className="fade-up" style={{position:"fixed",left:0,right:0,bottom:0,zIndex:50,
+        background:T.surface,borderRadius:"18px 18px 0 0",border:`1px solid ${T.border}`,
+        padding:"20px 18px 40px",maxWidth:520,margin:"0 auto",maxHeight:"85vh",overflowY:"auto",
+        boxShadow:"0 -8px 32px rgba(0,0,0,.25)"}}>
+        <div style={{width:36,height:3,borderRadius:2,background:T.border2,margin:"0 auto 6px"}}/>
+
+        {section===null ? (
+          <>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
+              <h3 style={{fontFamily:"'DM Serif Display',serif",fontSize:20,color:T.text}}>Configuración</h3>
+              <button onClick={onClose} style={{background:"transparent",border:"none",color:T.textSub,fontSize:18,cursor:"pointer"}}>✕</button>
+            </div>
+
+            {/* Cuenta */}
+            <div style={{fontSize:9,fontWeight:700,color:T.textSub,letterSpacing:2,textTransform:"uppercase",marginBottom:8}}>Cuenta</div>
+            {menuBtn("Cambiar contraseña","🔑",()=>setSection("password"))}
+            {menuBtn("Cambiar PIN","🔐",()=>{onClose();onChangePin();})}
+
+            {/* Datos */}
+            <div style={{fontSize:9,fontWeight:700,color:T.textSub,letterSpacing:2,textTransform:"uppercase",marginBottom:8,marginTop:16}}>Datos</div>
+            {menuBtn("Exportar CSV","📥",()=>{onClose();onExportCSV();})}
+            {menuBtn("Exportar JSON","📦",()=>{onClose();onExportJSON();})}
+            {menuBtn("Importar CSV / JSON","📂",()=>{onClose();onImport();})}
+          </>
+        ) : section==="password" ? (
+          <>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20}}>
+              <button onClick={()=>{setSection(null);setErr("");setOk("");}}
+                style={{background:"transparent",border:"none",color:T.textSub,cursor:"pointer",padding:0,fontSize:13,display:"flex",alignItems:"center",gap:5}}>
+                <svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M6 1L1 6L6 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                Volver
+              </button>
+              <h3 style={{fontFamily:"'DM Serif Display',serif",fontSize:18,color:T.text}}>Cambiar contraseña</h3>
+            </div>
+            <div style={{marginBottom:14}}>
+              <label style={{fontSize:11,color:T.textSub,display:"block",marginBottom:6,letterSpacing:.5}}>CONTRASEÑA ACTUAL</label>
+              <input type="password" value={oldPass} onChange={e=>setOldPass(e.target.value)} placeholder="••••••" style={inp}/>
+            </div>
+            <div style={{marginBottom:14}}>
+              <label style={{fontSize:11,color:T.textSub,display:"block",marginBottom:6,letterSpacing:.5}}>NUEVA CONTRASEÑA</label>
+              <input type="password" value={newPass} onChange={e=>setNewPass(e.target.value)} placeholder="Mínimo 6 caracteres" style={inp}/>
+            </div>
+            <div style={{marginBottom:18}}>
+              <label style={{fontSize:11,color:T.textSub,display:"block",marginBottom:6,letterSpacing:.5}}>CONFIRMAR NUEVA CONTRASEÑA</label>
+              <input type="password" value={newPass2} onChange={e=>setNewPass2(e.target.value)} placeholder="Repite la contraseña"
+                onKeyDown={e=>e.key==="Enter"&&handleChangePwd()} style={inp}/>
+            </div>
+            {err&&<div style={{fontSize:12,color:T.red,marginBottom:12,background:T.redDim,borderRadius:8,padding:"10px 12px"}}>{err}</div>}
+            {ok&&<div style={{fontSize:12,color:T.green,marginBottom:12,background:T.greenDim,borderRadius:8,padding:"10px 12px"}}>{ok}</div>}
+            <button onClick={handleChangePwd}
+              style={{width:"100%",background:T.accent,border:"none",borderRadius:10,
+                padding:"13px 0",fontSize:14,fontWeight:600,color:"#fff"}}>
+              Actualizar contraseña
+            </button>
+          </>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [dark, setDark]             = useState(getDarkMode);
@@ -1491,6 +1606,7 @@ export default function App() {
   const [sheet, setSheet]           = useState(null);
   const [closingMonth, setClosingMonth] = useState(false);
   const [showMenu, setShowMenu]     = useState(false);
+  const [showConfig, setShowConfig] = useState(false);
   const [importing, setImporting]   = useState(null); // null | {type,preview,raw}
   const [pinLocked, setPinLocked]   = useState(false);  // muestra PinScreen
   const [settingPin, setSettingPin] = useState(false);  // muestra SetPinScreen
@@ -1715,33 +1831,18 @@ export default function App() {
                   borderRadius:8,padding:"7px 12px",fontSize:15,color:T.textSub,lineHeight:1}}>⋯</button>
                 {showMenu&&(
                   <div style={{position:"absolute",top:"calc(100% + 6px)",right:0,background:T.surface,
-                    border:`1px solid ${T.border}`,borderRadius:12,overflow:"hidden",minWidth:180,zIndex:60,
+                    border:`1px solid ${T.border}`,borderRadius:12,overflow:"hidden",minWidth:190,zIndex:60,
                     boxShadow:"0 8px 24px rgba(0,0,0,.15)"}}>
                     <div style={{padding:"10px 14px",fontSize:11,color:T.textSub,borderBottom:`1px solid ${T.border}`}}>{session.email}</div>
-                    <button onClick={()=>{setShowMenu(false);setSettingPin(true);}}
+                    <button onClick={()=>{setShowMenu(false);setShowConfig(true);}}
                       style={{width:"100%",background:"transparent",border:"none",padding:"11px 14px",
                         fontSize:13,color:T.textMid,textAlign:"left",borderBottom:`1px solid ${T.border}`}}>
-                      🔐 Cambiar PIN
+                      ⚙️ Configuración
                     </button>
                     <button onClick={()=>{setShowMenu(false);setClosingMonth(true);}}
                       style={{width:"100%",background:"transparent",border:"none",padding:"11px 14px",
                         fontSize:13,color:T.textMid,textAlign:"left",borderBottom:`1px solid ${T.border}`}}>
                       📅 Cerrar mes
-                    </button>
-                    <button onClick={()=>{setShowMenu(false);exportCSV(data);}}
-                      style={{width:"100%",background:"transparent",border:"none",padding:"11px 14px",
-                        fontSize:13,color:T.textMid,textAlign:"left",borderBottom:`1px solid ${T.border}`}}>
-                      📥 Exportar CSV
-                    </button>
-                    <button onClick={()=>{setShowMenu(false);exportJSON(data);}}
-                      style={{width:"100%",background:"transparent",border:"none",padding:"11px 14px",
-                        fontSize:13,color:T.textMid,textAlign:"left",borderBottom:`1px solid ${T.border}`}}>
-                      📦 Exportar JSON
-                    </button>
-                    <button onClick={()=>{setShowMenu(false);document.getElementById('import-file-input').click();}}
-                      style={{width:"100%",background:"transparent",border:"none",padding:"11px 14px",
-                        fontSize:13,color:T.textMid,textAlign:"left",borderBottom:`1px solid ${T.border}`}}>
-                      📂 Importar JSON / CSV
                     </button>
                     <button onClick={logout} style={{width:"100%",background:"transparent",border:"none",
                       padding:"11px 14px",fontSize:13,color:T.red,textAlign:"left"}}>Cerrar sesión</button>
@@ -2007,7 +2108,16 @@ export default function App() {
         ok="Cerrar mes" okColor={T.accent} onOk={cerrarMes} onCancel={()=>setClosingMonth(false)}/>}
       {sheet&&<Sheet T={T} title={sheet.title} fields={sheet.fields} initial={sheet.initial||{}}
         onSave={sheetSave} onClose={()=>setSheet(null)}/>}
-      {showMenu&&<div onClick={()=>setShowMenu(false)} style={{position:"fixed",inset:0,zIndex:29}}/>}
+      {showConfig&&(
+        <ConfigScreen T={T} session={session} data={data}
+          onClose={()=>setShowConfig(false)}
+          onChangePin={()=>setSettingPin(true)}
+          onExportCSV={()=>exportCSV(data)}
+          onExportJSON={()=>exportJSON(data)}
+          onImport={()=>document.getElementById('import-file-input').click()}
+        />
+      )}
+      {showMenu&&<div onClick={()=>setShowMenu(false)} style={{position:"fixed",inset:0,zIndex:29}}/>}}
 
       {/* Hidden file input for import */}
       <input id="import-file-input" type="file" accept=".json,.csv" style={{display:"none"}}
