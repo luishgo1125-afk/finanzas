@@ -74,7 +74,34 @@ const checkEmailExists = async (email) => {
   } catch(e){ return false; }
 };
 
-// Buscar usuario por email en Supabase
+// ─── SUPABASE AUTH HELPERS ───────────────────────────────────────────────────
+// Registro con Supabase Auth (envía email de confirmación)
+const sbSignUp = async (email, pass, name) => {
+  const {data, error} = await sb.auth.signUp({
+    email, password: pass,
+    options: {
+      data: {name},
+      emailRedirectTo: "https://finanzas-seven-theta.vercel.app",
+    }
+  });
+  return {data, error};
+};
+
+// Login con Supabase Auth
+const sbSignIn = async (email, pass) => {
+  const {data, error} = await sb.auth.signInWithPassword({email, password: pass});
+  return {data, error};
+};
+
+// Recuperar contraseña
+const sbResetPassword = async (email) => {
+  const {error} = await sb.auth.resetPasswordForEmail(email, {
+    redirectTo: "https://finanzas-seven-theta.vercel.app",
+  });
+  return {error};
+};
+
+// Buscar usuario por email en Supabase (tabla user_data)
 const findCloudUser = async (email) => {
   try {
     const {data, error} = await sb.from("user_data").select("id, email, pass, name").eq("email", email).single();
@@ -517,6 +544,10 @@ function AuthScreen({T, onLogin}) {
     padding:"13px 16px",fontSize:15,color:T.text,fontFamily:"'DM Sans',sans-serif"};
   const emailValido = v => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.trim());
 
+  const [showForgot, setShowForgot] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotMsg, setForgotMsg] = useState("");
+
   const handleEmail = async () => {
     setErr("");
     if(!email.trim()||!pass.trim()){setErr("Completa todos los campos.");return;}
@@ -524,50 +555,69 @@ function AuthScreen({T, onLogin}) {
     const key = email.toLowerCase().trim();
     setErr("Verificando...");
 
-    // 1. Buscar en Supabase primero (funciona en cualquier dispositivo)
-    const cloudUser = await findCloudUser(key);
-    if(cloudUser) {
-      if(cloudUser.pass !== pass){setErr("Correo o contraseña incorrectos.");return;}
-      // Guardar usuario localmente para próximos logins offline
-      const users = getUsers();
-      users[key] = {id:cloudUser.id, name:cloudUser.name||key, email:key, pass};
-      saveUsers(users);
-      const data = await loadCloudData(cloudUser.id) || getUserData(cloudUser.id) || SEED_DATA();
-      const s = {id:cloudUser.id, name:cloudUser.name||key, email:key};
-      saveSession(s); onLogin(s, data);
-      return;
+    // Login con Supabase Auth
+    const {data:authData, error:authError} = await sbSignIn(key, pass);
+    if(authError){
+      // Fallback para usuarios legacy (antes de Supabase Auth)
+      const cloudUser = await findCloudUser(key);
+      if(cloudUser && cloudUser.pass===pass){
+        const users = getUsers();
+        users[key]={id:cloudUser.id,name:cloudUser.name||key,email:key,pass};
+        saveUsers(users);
+        const data = await loadCloudData(cloudUser.id)||getUserData(cloudUser.id)||SEED_DATA();
+        const s={id:cloudUser.id,name:cloudUser.name||key,email:key};
+        saveSession(s); onLogin(s,data); return;
+      }
+      setErr("Correo o contraseña incorrectos.");return;
     }
-
-    // 2. Fallback: buscar en localStorage (dispositivo original)
+    const authUser = authData.user;
+    if(!authUser.email_confirmed_at){
+      setErr("Debes confirmar tu correo antes de entrar. Revisa tu bandeja de entrada.");return;
+    }
+    // Cargar o crear datos de la app
+    const userName = authUser.user_metadata?.name || key;
+    const data = await loadCloudData(authUser.id) || SEED_DATA();
+    const s={id:authUser.id, name:userName, email:key};
+    // Sincronizar con sistema legacy
     const users = getUsers();
-    const user = users[key];
-    if(!user||user.pass!==pass){setErr("Correo o contraseña incorrectos.");return;}
-    const data = await loadCloudData(user.id) || getUserData(user.id) || SEED_DATA();
-    const s = {id:user.id, name:user.name, email:key};
-    saveSession(s); onLogin(s, data);
+    users[key]={id:authUser.id,name:userName,email:key,pass};
+    saveUsers(users);
+    saveSession(s); onLogin(s,data);
+  };
+
+  const handleForgot = async () => {
+    setForgotMsg("");
+    if(!emailValido(forgotEmail)){setForgotMsg("Correo inválido.");return;}
+    const {error} = await sbResetPassword(forgotEmail.toLowerCase().trim());
+    if(error) setForgotMsg("Error al enviar. Verifica el correo.");
+    else setForgotMsg("✓ Revisa tu correo para restablecer tu contraseña.");
   };
 
   const handleRegister = async () => {
     setErr("");
-    const users = getUsers();
     if(!name.trim()||!email.trim()||!pass.trim()){setErr("Completa todos los campos.");return;}
     if(!emailValido(email)){setErr("Correo inválido. Ej: nombre@gmail.com");return;}
-    if(pass.length<6){setErr("La contraseña debe tener al menos 6 caracteres.");return;}
+    if(pass.length<8){setErr("La contraseña debe tener al menos 8 caracteres.");return;}
     const key=email.toLowerCase().trim();
-    if(users[key]){setErr("Ya existe una cuenta con ese correo.");return;}
-    // Verificar también en Supabase (cubre otros dispositivos)
-    setErr("Verificando disponibilidad...");
-    const existsCloud = await checkEmailExists(key);
-    if(existsCloud){setErr("Ya existe una cuenta con ese correo en otro dispositivo.");return;}
+    setErr("Creando cuenta...");
+    // Registrar con Supabase Auth
+    const {data:authData, error:authError} = await sbSignUp(key, pass, name.trim());
+    if(authError){
+      if(authError.message.includes("already registered")) setErr("Ya existe una cuenta con ese correo.");
+      else setErr(authError.message||"Error al crear la cuenta.");
+      return;
+    }
     setErr("");
-    const id=uid();
-    users[key]={id,name:name.trim(),email:key,pass};
+    // Guardar datos iniciales en nuestra tabla user_data
+    const authUser = authData.user;
     const seedData = SEED_DATA();
-    saveUsers(users); saveUserData(id, seedData);
-    // Guardar en Supabase incluyendo nombre y contraseña para login desde otros dispositivos
-    await saveCloudUser(id, key, name.trim(), pass, seedData);
-    const s={id, name:name.trim(), email:key};
-    saveSession(s); onLogin(s, seedData);
+    await saveCloudUser(authUser.id, key, name.trim(), pass, seedData);
+    // Guardar localmente también
+    const users = getUsers();
+    users[key]={id:authUser.id,name:name.trim(),email:key,pass};
+    saveUsers(users); saveUserData(authUser.id, seedData);
+    // Mostrar mensaje de confirmación en lugar de entrar directo
+    setModo("confirm_email");
   };
 
   // Login por PIN: busca usuario con ese PIN
@@ -720,6 +770,63 @@ function AuthScreen({T, onLogin}) {
       <button onClick={handleEmail} style={{width:"100%",background:T.accent,border:"none",borderRadius:12,
         padding:"14px 0",fontSize:14,fontWeight:600,color:"#fff",fontFamily:"'DM Sans',sans-serif"}}>
         Entrar
+      </button>
+      <button onClick={()=>{setShowForgot(true);setForgotEmail(email);}}
+        style={{width:"100%",background:"transparent",border:"none",marginTop:12,
+          fontSize:12,color:T.textSub,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+        ¿Olvidaste tu contraseña?
+      </button>
+    </div>
+  );
+
+  // ── Pantalla: confirmar email ──
+  if(modo==="confirm_email") return wrap(
+    <div className="fade-up" style={{width:"100%",maxWidth:380,background:T.surface,border:`1px solid ${T.border}`,borderRadius:18,padding:28,textAlign:"center"}}>
+      <div style={{fontSize:48,marginBottom:16}}>📧</div>
+      <h3 style={{fontFamily:"'DM Serif Display',serif",fontSize:22,color:T.text,marginBottom:10}}>Confirma tu correo</h3>
+      <p style={{fontSize:13,color:T.textSub,lineHeight:1.7,marginBottom:20}}>
+        Te enviamos un email a <strong>{email}</strong>.<br/>
+        Haz clic en el link para activar tu cuenta.
+      </p>
+      <div style={{fontSize:12,color:T.textSub,background:T.card,borderRadius:10,padding:"10px 14px",marginBottom:20}}>
+        ¿No lo ves? Revisa tu carpeta de spam.
+      </div>
+      <button onClick={()=>setModo("email")}
+        style={{width:"100%",background:T.accent,border:"none",borderRadius:12,
+          padding:"13px 0",fontSize:14,fontWeight:600,color:"#fff"}}>
+        Ya confirmé, iniciar sesión
+      </button>
+    </div>
+  );
+
+  // ── Pantalla: olvidé contraseña ──
+  if(showForgot) return wrap(
+    <div className="fade-up" style={{width:"100%",maxWidth:380,background:T.surface,border:`1px solid ${T.border}`,borderRadius:18,padding:24}}>
+      <button onClick={()=>{setShowForgot(false);setForgotMsg("");}}
+        style={{background:"transparent",border:"none",color:T.textSub,fontSize:12,
+          cursor:"pointer",marginBottom:16,display:"flex",alignItems:"center",gap:5,padding:0}}>
+        <svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M6 1L1 6L6 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+        Volver
+      </button>
+      <h3 style={{fontFamily:"'DM Serif Display',serif",fontSize:20,color:T.text,marginBottom:6}}>Recuperar contraseña</h3>
+      <p style={{fontSize:13,color:T.textSub,marginBottom:18,lineHeight:1.6}}>
+        Te enviaremos un link para restablecer tu contraseña.
+      </p>
+      <div style={{marginBottom:14}}>
+        <label style={{fontSize:11,color:T.textSub,display:"block",marginBottom:6,letterSpacing:.5}}>CORREO</label>
+        <input type="email" value={forgotEmail} onChange={e=>setForgotEmail(e.target.value)}
+          placeholder="correo@ejemplo.com"
+          onKeyDown={e=>e.key==="Enter"&&handleForgot()}
+          style={{width:"100%",background:T.card,border:`1px solid ${T.border2}`,borderRadius:12,
+            padding:"13px 16px",fontSize:15,color:T.text}}/>
+      </div>
+      {forgotMsg&&<div style={{fontSize:12,marginBottom:14,borderRadius:8,padding:"10px 12px",
+        background:forgotMsg.startsWith("✓")?T.greenDim:T.redDim,
+        color:forgotMsg.startsWith("✓")?T.green:T.red}}>{forgotMsg}</div>}
+      <button onClick={handleForgot}
+        style={{width:"100%",background:T.accent,border:"none",borderRadius:12,
+          padding:"13px 0",fontSize:14,fontWeight:600,color:"#fff"}}>
+        Enviar link de recuperación
       </button>
     </div>
   );
@@ -1655,14 +1762,28 @@ export default function App() {
   const [settingPin, setSettingPin] = useState(false);  // muestra SetPinScreen
 
   useEffect(()=>{
-    const s=getSession();
-    if(!s) return;
-    setSession(s);
-    // Intentar cargar desde Supabase primero, luego migrar local si existe
     (async()=>{
+      // Manejar callback de confirmación de email (hash en la URL)
+      const hash = window.location.hash;
+      if(hash && hash.includes("access_token")) {
+        const {data:{session:sbSession}} = await sb.auth.getSession();
+        if(sbSession){
+          const u = sbSession.user;
+          const userName = u.user_metadata?.name || u.email;
+          let d = await loadCloudData(u.id) || SEED_DATA();
+          const s={id:u.id, name:userName, email:u.email};
+          saveSession(s); setSession(s); setData(d);
+          window.history.replaceState(null,"",window.location.pathname);
+          return;
+        }
+      }
+      // Carga normal de sesión
+      const s=getSession();
+      if(!s) return;
+      setSession(s);
       let d = await loadCloudData(s.id);
-      if(!d){ d = getUserData(s.id); if(d) saveCloudData(s.id,s.email,d); } // migra local a nube
-      if(!d) d = getUserData(s.id); // fallback a localStorage
+      if(!d){ d = getUserData(s.id); if(d) saveCloudData(s.id,s.email,d); }
+      if(!d) d = getUserData(s.id);
       if(d){ setData(d); if(getPin(s.id)) setPinLocked(true); }
       else saveSession(null);
     })();
