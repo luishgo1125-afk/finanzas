@@ -2160,6 +2160,7 @@ export default function App() {
         />
       )}
       {showMenu&&<div onClick={()=>setShowMenu(false)} style={{position:"fixed",inset:0,zIndex:29}}/>}
+
       {/* Hidden file input for import */}
       <input id="import-file-input" type="file" accept=".json,.csv" style={{display:"none"}}
         onChange={async e=>{
