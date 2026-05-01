@@ -52,36 +52,50 @@ const makeTheme = (dark) => ({
 
 // ─── SUPABASE CONFIG ──────────────────────────────────────────────────────────
 const SB_URL = "https://hchkkmknrfssxshbwtmi.supabase.co";
-const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhjaGtrbWtucmZzc3hzaGJ3dG1pIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1NzI1NzksImV4cCI6MjA5MzE0ODU3OX0.8wbQlYHUmAT57F1AfgivcVsDw-iQE-tJ4bmrOIoAQRg";
-const sbH = {"Content-Type":"application/json","apikey":SB_KEY,"Authorization":`Bearer ${SB_KEY}`};
+const SB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhjaGtrbWtucmZzc3hzaGJ3dG1pIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1NzI1NzksImV4cCI6MjA5MzE0ODU3OX0.8wbQlYHUmAT57F1AfgivcVsDw-iQE-tJ4bmrOIoAQRg";
+
+// Inicializar cliente Supabase (cargado via CDN en index.html)
+let _sb = null;
+const getSB = () => {
+  if(_sb) return _sb;
+  if(window.supabase?.createClient) {
+    _sb = window.supabase.createClient(SB_URL, SB_ANON);
+  }
+  return _sb;
+};
 
 const loadCloudData = async (id) => {
   try {
-    const res = await fetch(`${SB_URL}/rest/v1/user_data?id=eq.${id}&select=data`,{headers:sbH});
-    if(!res.ok) return null;
-    const rows = await res.json();
-    return rows.length>0 ? rows[0].data : null;
-  } catch(e) { return null; }
+    const sb = getSB();
+    if(!sb) return null;
+    const {data, error} = await sb.from("user_data").select("data").eq("id", id).single();
+    if(error) { console.warn("loadCloudData:", error.message); return null; }
+    return data?.data || null;
+  } catch(e){ console.warn("loadCloudData error:", e); return null; }
 };
 
 const checkEmailExists = async (email) => {
   try {
-    const res = await fetch(`${SB_URL}/rest/v1/user_data?email=eq.${encodeURIComponent(email)}&select=id`,{headers:sbH});
-    if(!res.ok) return false;
-    const rows = await res.json();
-    return rows.length > 0;
+    const sb = getSB();
+    if(!sb) return false;
+    const {data, error} = await sb.from("user_data").select("id").eq("email", email);
+    if(error) return false;
+    return (data?.length||0) > 0;
   } catch(e){ return false; }
 };
 
-const saveCloudData = async (id, email, data) => {
-  localStorage.setItem(`fin_data_${id}`, JSON.stringify(data));
+const saveCloudData = async (id, email, appData) => {
+  localStorage.setItem(`fin_data_${id}`, JSON.stringify(appData));
   try {
-    await fetch(`${SB_URL}/rest/v1/user_data`,{
-      method:"POST",
-      headers:{...sbH,"Prefer":"resolution=merge-duplicates"},
-      body:JSON.stringify({id,email,data,updated_at:new Date().toISOString()})
-    });
-  } catch(e){}
+    const sb = getSB();
+    if(!sb) return;
+    const {error} = await sb.from("user_data").upsert(
+      {id, email, data:appData, updated_at: new Date().toISOString()},
+      {onConflict: "id"}
+    );
+    if(error) console.warn("saveCloudData:", error.message);
+    else console.log("✓ Supabase sync OK");
+  } catch(e){ console.warn("saveCloudData error:", e); }
 };
 
 // ─── AUTH STORAGE ─────────────────────────────────────────────────────────────
@@ -593,7 +607,7 @@ function AuthScreen({T, onLogin}) {
       </div>
       {children}
       <p style={{fontSize:11,color:T.textSub,marginTop:20,textAlign:"center",lineHeight:1.6}}>
-        Datos guardados localmente · Sin servidores externos
+        Datos sincronizados con la nube · Cifrado y seguro
       </p>
     </div>
   );
@@ -2117,7 +2131,7 @@ export default function App() {
           onImport={()=>document.getElementById('import-file-input').click()}
         />
       )}
-      {showMenu&&<div onClick={()=>setShowMenu(false)} style={{position:"fixed",inset:0,zIndex:29}}/>}
+      {showMenu&&<div onClick={()=>setShowMenu(false)} style={{position:"fixed",inset:0,zIndex:29}}/>}}
 
       {/* Hidden file input for import */}
       <input id="import-file-input" type="file" accept=".json,.csv" style={{display:"none"}}
@@ -2142,7 +2156,7 @@ export default function App() {
               // Restaurar TODOS los datos desde JSON
               const newData = {...SEED_DATA(), ...importing.data};
               upd(()=>newData);
-              sbSave(session.id, session.email, newData);
+              saveCloudData(session.id, session.email, newData);
             } else {
               // Importar CSV completo — reconstruir todas las secciones
               const TIPO_MAP = {
@@ -2210,7 +2224,7 @@ export default function App() {
                 });
               }
               upd(()=>newData);
-              sbSave(session.id, session.email, newData);
+              saveCloudData(session.id, session.email, newData);
             }
             setImporting(null);
           }}/>
