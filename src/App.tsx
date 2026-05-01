@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { createClient } from "@supabase/supabase-js";
 
 // ─── FONTS ────────────────────────────────────────────────────────────────────
 const FONTS = `https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap`;
@@ -54,20 +55,11 @@ const makeTheme = (dark) => ({
 const SB_URL = "https://hchkkmknrfssxshbwtmi.supabase.co";
 const SB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhjaGtrbWtucmZzc3hzaGJ3dG1pIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1NzI1NzksImV4cCI6MjA5MzE0ODU3OX0.8wbQlYHUmAT57F1AfgivcVsDw-iQE-tJ4bmrOIoAQRg";
 
-// Inicializar cliente Supabase (cargado via CDN en index.html)
-let _sb = null;
-const getSB = () => {
-  if(_sb) return _sb;
-  if(window.supabase?.createClient) {
-    _sb = window.supabase.createClient(SB_URL, SB_ANON);
-  }
-  return _sb;
-};
+// Cliente Supabase inicializado con el paquete oficial
+const sb = createClient(SB_URL, SB_ANON);
 
 const loadCloudData = async (id) => {
   try {
-    const sb = getSB();
-    if(!sb) return null;
     const {data, error} = await sb.from("user_data").select("data").eq("id", id).single();
     if(error) { console.warn("loadCloudData:", error.message); return null; }
     return data?.data || null;
@@ -76,8 +68,6 @@ const loadCloudData = async (id) => {
 
 const checkEmailExists = async (email) => {
   try {
-    const sb = getSB();
-    if(!sb) return false;
     const {data, error} = await sb.from("user_data").select("id").eq("email", email);
     if(error) return false;
     return (data?.length||0) > 0;
@@ -87,10 +77,8 @@ const checkEmailExists = async (email) => {
 const saveCloudData = async (id, email, appData) => {
   localStorage.setItem(`fin_data_${id}`, JSON.stringify(appData));
   try {
-    const sb = getSB();
-    if(!sb) return;
     const {error} = await sb.from("user_data").upsert(
-      {id, email, data:appData, updated_at: new Date().toISOString()},
+      {id, email, data: appData, updated_at: new Date().toISOString()},
       {onConflict: "id"}
     );
     if(error) console.warn("saveCloudData:", error.message);
@@ -2131,7 +2119,7 @@ export default function App() {
           onImport={()=>document.getElementById('import-file-input').click()}
         />
       )}
-      {showMenu&&<div onClick={()=>setShowMenu(false)} style={{position:"fixed",inset:0,zIndex:29}}/>}}
+      {showMenu&&<div onClick={()=>setShowMenu(false)} style={{position:"fixed",inset:0,zIndex:29}}/>}
 
       {/* Hidden file input for import */}
       <input id="import-file-input" type="file" accept=".json,.csv" style={{display:"none"}}
