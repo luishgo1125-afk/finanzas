@@ -748,6 +748,38 @@ function AuthScreen({T, onLogin}) {
     </div>
   );
 
+  // ── Pantalla: olvidé contraseña ──
+  if(showForgot) return wrap(
+    <div className="fade-up" style={{width:"100%",maxWidth:380,background:T.surface,border:`1px solid ${T.border}`,borderRadius:18,padding:24}}>
+      <button onClick={()=>{setShowForgot(false);setForgotMsg("");}}
+        style={{background:"transparent",border:"none",color:T.textSub,fontSize:12,
+          cursor:"pointer",marginBottom:16,display:"flex",alignItems:"center",gap:5,padding:0}}>
+        <svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M6 1L1 6L6 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+        Volver
+      </button>
+      <h3 style={{fontFamily:"'DM Serif Display',serif",fontSize:20,color:T.text,marginBottom:6}}>Recuperar contraseña</h3>
+      <p style={{fontSize:13,color:T.textSub,marginBottom:18,lineHeight:1.6}}>
+        Te enviaremos un link para restablecer tu contraseña.
+      </p>
+      <div style={{marginBottom:14}}>
+        <label style={{fontSize:11,color:T.textSub,display:"block",marginBottom:6,letterSpacing:.5}}>CORREO</label>
+        <input type="email" value={forgotEmail} onChange={e=>setForgotEmail(e.target.value)}
+          placeholder="correo@ejemplo.com"
+          onKeyDown={e=>e.key==="Enter"&&handleForgot()}
+          style={{width:"100%",background:T.card,border:`1px solid ${T.border2}`,borderRadius:12,
+            padding:"13px 16px",fontSize:15,color:T.text}}/>
+      </div>
+      {forgotMsg&&<div style={{fontSize:12,marginBottom:14,borderRadius:8,padding:"10px 12px",
+        background:forgotMsg.startsWith("✓")?T.greenDim:T.redDim,
+        color:forgotMsg.startsWith("✓")?T.green:T.red}}>{forgotMsg}</div>}
+      <button onClick={handleForgot}
+        style={{width:"100%",background:T.accent,border:"none",borderRadius:12,
+          padding:"13px 0",fontSize:14,fontWeight:600,color:"#fff"}}>
+        Enviar link de recuperación
+      </button>
+    </div>
+  );
+
   // ── Login con correo ──
   if(modo==="email") return wrap(
     <div className="fade-up" style={{width:"100%",maxWidth:380,background:T.surface,border:`1px solid ${T.border}`,borderRadius:18,padding:24}}>
@@ -795,38 +827,6 @@ function AuthScreen({T, onLogin}) {
         style={{width:"100%",background:T.accent,border:"none",borderRadius:12,
           padding:"13px 0",fontSize:14,fontWeight:600,color:"#fff"}}>
         Ya confirmé, iniciar sesión
-      </button>
-    </div>
-  );
-
-  // ── Pantalla: olvidé contraseña ──
-  if(showForgot) return wrap(
-    <div className="fade-up" style={{width:"100%",maxWidth:380,background:T.surface,border:`1px solid ${T.border}`,borderRadius:18,padding:24}}>
-      <button onClick={()=>{setShowForgot(false);setForgotMsg("");}}
-        style={{background:"transparent",border:"none",color:T.textSub,fontSize:12,
-          cursor:"pointer",marginBottom:16,display:"flex",alignItems:"center",gap:5,padding:0}}>
-        <svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M6 1L1 6L6 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
-        Volver
-      </button>
-      <h3 style={{fontFamily:"'DM Serif Display',serif",fontSize:20,color:T.text,marginBottom:6}}>Recuperar contraseña</h3>
-      <p style={{fontSize:13,color:T.textSub,marginBottom:18,lineHeight:1.6}}>
-        Te enviaremos un link para restablecer tu contraseña.
-      </p>
-      <div style={{marginBottom:14}}>
-        <label style={{fontSize:11,color:T.textSub,display:"block",marginBottom:6,letterSpacing:.5}}>CORREO</label>
-        <input type="email" value={forgotEmail} onChange={e=>setForgotEmail(e.target.value)}
-          placeholder="correo@ejemplo.com"
-          onKeyDown={e=>e.key==="Enter"&&handleForgot()}
-          style={{width:"100%",background:T.card,border:`1px solid ${T.border2}`,borderRadius:12,
-            padding:"13px 16px",fontSize:15,color:T.text}}/>
-      </div>
-      {forgotMsg&&<div style={{fontSize:12,marginBottom:14,borderRadius:8,padding:"10px 12px",
-        background:forgotMsg.startsWith("✓")?T.greenDim:T.redDim,
-        color:forgotMsg.startsWith("✓")?T.green:T.red}}>{forgotMsg}</div>}
-      <button onClick={handleForgot}
-        style={{width:"100%",background:T.accent,border:"none",borderRadius:12,
-          padding:"13px 0",fontSize:14,fontWeight:600,color:"#fff"}}>
-        Enviar link de recuperación
       </button>
     </div>
   );
@@ -2283,7 +2283,7 @@ export default function App() {
           onImport={()=>document.getElementById('import-file-input').click()}
         />
       )}
-      {showMenu&&<div onClick={()=>setShowMenu(false)} style={{position:"fixed",inset:0,zIndex:29}}/>}
+      {showMenu&&<div onClick={()=>setShowMenu(false)} style={{position:"fixed",inset:0,zIndex:29}}/>}}
 
       {/* Hidden file input for import */}
       <input id="import-file-input" type="file" accept=".json,.csv" style={{display:"none"}}
