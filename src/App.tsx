@@ -1051,19 +1051,36 @@ function mCfg(s) {
 
 // ─── EXPORT HELPERS ──────────────────────────────────────────────────────────
 const exportCSV = (data) => {
-  const rows = [["Tipo","Nombre","Monto","Categoría","Fecha","Nota"]];
-  data.ingresos.forEach(x=>rows.push(["Ingreso",x.nombre,x.monto,"","",""]));
-  data.gastos.forEach(x=>rows.push(["Gasto fijo",x.nombre,x.monto,"","",""]));
-  data.servicios.forEach(x=>rows.push(["Servicio",x.nombre,x.monto,"","",""]));
-  data.variables.forEach(x=>rows.push(["Variable",x.nombre,x.monto,x.categoria||"",x.fecha||"",x.nota||""]));
-  data.tarjetas.forEach(x=>rows.push(["Tarjeta",x.nombre,x.saldo,x.banco||"","",""]));
-  const csv = rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(",")).join("\n");
-  const blob = new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8"});
+  const q = v => '"'+String(v===null||v===undefined?"":v).replace(/"/g,'""')+'"';
+  const rows = [];
+  rows.push(["#SECCION","Ingresos"]);
+  rows.push(["Tipo","Icono","Nombre","Monto","Pagado","Banco","Limite","SaldoCorte","Categoria","Fecha","Nota"]);
+  (data.ingresos||[]).forEach(x=>rows.push(["Ingreso",x.icon||"",x.nombre,x.monto,x.pagado?"Si":"No","","","",x.categoria||"",x.fecha||"",x.nota||""]));
+  rows.push(["#SECCION","Gastos Fijos"]);
+  rows.push(["Tipo","Icono","Nombre","Monto","Pagado","Banco","Limite","SaldoCorte","Categoria","Fecha","Nota"]);
+  (data.gastos||[]).forEach(x=>rows.push(["Gasto fijo",x.icon||"",x.nombre,x.monto,x.pagado?"Si":"No","","","",x.categoria||"",x.fecha||"",x.nota||""]));
+  rows.push(["#SECCION","Servicios"]);
+  rows.push(["Tipo","Icono","Nombre","Monto","Pagado","Banco","Limite","SaldoCorte","Categoria","Fecha","Nota"]);
+  (data.servicios||[]).forEach(x=>rows.push(["Servicio",x.icon||"",x.nombre,x.monto,x.pagado?"Si":"No","","","",x.categoria||"",x.fecha||"",x.nota||""]));
+  rows.push(["#SECCION","Variables"]);
+  rows.push(["Tipo","Icono","Nombre","Monto","Pagado","Banco","Limite","SaldoCorte","Categoria","Fecha","Nota"]);
+  (data.variables||[]).forEach(x=>rows.push(["Variable",x.icon||"",x.nombre,x.monto,"","","","",x.categoria||"",x.fecha||"",x.nota||""]));
+  rows.push(["#SECCION","Tarjetas"]);
+  rows.push(["Tipo","Icono","Nombre","Monto","Pagado","Banco","Limite","SaldoCorte","Categoria","Fecha","Nota"]);
+  (data.tarjetas||[]).forEach(x=>rows.push(["Tarjeta",x.icon||"",x.nombre,x.saldo,x.pagado?"Si":"No",x.banco||"",x.limite||0,x.saldoCorte||0,"",x.corte||"",""]));
+  rows.push(["#SECCION","Historial"]);
+  rows.push(["Mes","Ingresos","GastosFijos","Servicios","Variables","Tarjetas","EgresosReales","BalanceReal","BalanceProyectado","SaldoArrastre"]);
+  (data.historial||[]).forEach(h=>rows.push([h.mes,h.ingresos,h.gastosFijos,h.servicios,h.variables,h.tarjetas,h.egresosReales,h.balanceReal,h.balanceProyectado,h.saldoArrastre||0]));
+  rows.push(["#SECCION","Ahorro"]);
+  rows.push(["Ahorro","MetaAhorro","SaldoArrastre"]);
+  rows.push([data.ahorro||0,data.metaAhorro||0,data.saldoArrastre||0]);
+  const csv = rows.map(r=>r.map(q).join(",")).join("\n");
+  const blob = new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"});
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `mi-capital-${new Date().toISOString().slice(0,10)}.csv`;
+  a.download = "mi-capital-"+new Date().toISOString().slice(0,10)+".csv";
   a.click();
-};
+}
 const exportJSON = (data) => {
   const blob = new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
   const a = document.createElement("a");
@@ -1073,48 +1090,58 @@ const exportJSON = (data) => {
 };
 
 // ─── IMPORT HELPERS ──────────────────────────────────────────────────────────
+const parseCsvLine = (line) => {
+  const cols=[]; let cur="", inQ=false;
+  line = line.replace(/\r$/,"");
+  for(let i=0;i<line.length;i++){
+    if(line[i]==='"'&&!inQ){ inQ=true; }
+    else if(line[i]==='"'&&inQ&&line[i+1]==='"'){ cur+='"'; i++; }
+    else if(line[i]==='"'&&inQ){ inQ=false; }
+    else if(line[i]===','&&!inQ){ cols.push(cur); cur=""; }
+    else { cur+=line[i]; }
+  }
+  cols.push(cur);
+  return cols;
+};
 const parseImportFile = (file) => new Promise((resolve, reject) => {
   const reader = new FileReader();
   reader.onload = e => {
-    const text = e.target.result;
-    const ext = file.name.split('.').pop().toLowerCase();
-    if(ext === 'json') {
+    let text = e.target.result.replace(/^\uFEFF/,"");
+    const ext = file.name.split(".").pop().toLowerCase();
+    if(ext==="json") {
       try {
         const parsed = JSON.parse(text);
-        // Validar que tiene la estructura correcta
-        if(parsed && typeof parsed === 'object' && ('ingresos' in parsed || 'gastos' in parsed)) {
-          resolve({type:'json', data: parsed});
-        } else {
-          reject('El archivo JSON no tiene el formato correcto de Mi Capital.');
-        }
-      } catch(e) { reject('El archivo JSON está dañado o no es válido.'); }
-    } else if(ext === 'csv') {
+        if(parsed && typeof parsed==="object" && ("ingresos" in parsed || "gastos" in parsed)){
+          resolve({type:"json", data:parsed});
+        } else { reject("El archivo JSON no tiene el formato correcto de Mi Capital."); }
+      } catch(e){ reject("El archivo JSON esta danado o no es valido."); }
+    } else if(ext==="csv") {
       try {
-        const lines = text.split('').filter(l=>l.trim());
-        const headers = lines[0].split(',').map(h=>h.replace(/^"|"$/g,'').trim());
-        const rows = lines.slice(1).map(line=>{
-          const cols = [];
-          let cur='', inQ=false;
-          for(let i=0;i<line.length;i++){
-            if(line[i]==='"'){ inQ=!inQ; }
-            else if(line[i]===','&&!inQ){ cols.push(cur); cur=''; }
-            else { cur+=line[i]; }
+        const lines = text.split("\n").filter(l=>l.trim());
+        const sections=[]; let currentHeader=null, currentRows=[], currentLabel="";
+        for(const line of lines){
+          const cols = parseCsvLine(line);
+          const first = cols[0]||"";
+          if(first==="#SECCION"){ currentLabel=cols[1]||""; continue; }
+          const isHeader = ["Tipo","Mes","Ahorro"].includes(first);
+          if(isHeader){
+            if(currentHeader&&currentRows.length>0) sections.push({label:currentLabel,header:currentHeader,rows:currentRows});
+            currentHeader=cols; currentRows=[];
+          } else if(currentHeader&&first){
+            const obj={};
+            currentHeader.forEach((h,i)=>{ obj[h]=cols[i]||""; });
+            currentRows.push(obj);
           }
-          cols.push(cur);
-          const obj={};
-          headers.forEach((h,i)=>obj[h]=cols[i]||'');
-          return obj;
-        }).filter(r=>r.Nombre||r.nombre);
-        resolve({type:'csv', rows});
-      } catch(e) { reject('El archivo CSV está dañado o no es válido.'); }
-    } else {
-      reject('Formato no soportado. Usa .json o .csv');
-    }
+        }
+        if(currentHeader&&currentRows.length>0) sections.push({label:currentLabel,header:currentHeader,rows:currentRows});
+        const allRows = sections.flatMap(s=>s.rows);
+        resolve({type:"csv", rows:allRows, sections});
+      } catch(e){ reject("El archivo CSV esta danado o no es valido."); }
+    } else { reject("Formato no soportado. Usa .json o .csv"); }
   };
-  reader.onerror = () => reject('Error al leer el archivo.');
-  reader.readAsText(file, 'UTF-8');
-});
-
+  reader.onerror = () => reject("Error al leer el archivo.");
+  reader.readAsText(file,"UTF-8");
+})
 // ─── IMPORT MODAL ─────────────────────────────────────────────────────────────
 function ImportModal({T, importing, onConfirm, onCancel}) {
   const {type, data, rows} = importing;
@@ -1122,16 +1149,20 @@ function ImportModal({T, importing, onConfirm, onCancel}) {
 
   // Preview de lo que se va a importar
   const preview = isJson ? [
-    {label:'Ingresos', count: data.ingresos?.length||0},
-    {label:'Gastos fijos', count: data.gastos?.length||0},
-    {label:'Servicios', count: data.servicios?.length||0},
-    {label:'Variables', count: data.variables?.length||0},
-    {label:'Tarjetas', count: data.tarjetas?.length||0},
-    {label:'Meses en historial', count: data.historial?.length||0},
+    {label:"Ingresos",         count: data.ingresos?.length||0},
+    {label:"Gastos fijos",     count: data.gastos?.length||0},
+    {label:"Servicios",        count: data.servicios?.length||0},
+    {label:"Variables",        count: data.variables?.length||0},
+    {label:"Tarjetas",         count: data.tarjetas?.length||0},
+    {label:"Meses historial",  count: data.historial?.length||0},
+    {label:"Ahorro",           count: data.ahorro>0?1:0},
   ] : [
-    {label:'Filas CSV encontradas', count: rows?.length||0},
-    {label:'Variables a importar', count: rows?.filter(r=>(r.Tipo||r.tipo)==='Variable').length||0},
-    {label:'Ingresos a importar', count: rows?.filter(r=>(r.Tipo||r.tipo)==='Ingreso').length||0},
+    {label:"Ingresos",     count: rows?.filter(r=>r.Tipo==="Ingreso").length||0},
+    {label:"Gastos fijos", count: rows?.filter(r=>r.Tipo==="Gasto fijo").length||0},
+    {label:"Servicios",    count: rows?.filter(r=>r.Tipo==="Servicio").length||0},
+    {label:"Variables",    count: rows?.filter(r=>r.Tipo==="Variable").length||0},
+    {label:"Tarjetas",     count: rows?.filter(r=>r.Tipo==="Tarjeta").length||0},
+    {label:"Meses historial", count: rows?.filter(r=>r.Mes).length||0},
   ];
 
   return (
@@ -1997,33 +2028,79 @@ export default function App() {
         <ImportModal T={T} importing={importing}
           onCancel={()=>setImporting(null)}
           onConfirm={()=>{
-            if(importing.type==='json'){
-              // Restaurar TODOS los datos
+            if(importing.type==="json"){
+              // Restaurar TODOS los datos desde JSON
               const newData = {...SEED_DATA(), ...importing.data};
               upd(()=>newData);
               sbSave(session.id, session.email, newData);
             } else {
-              // Importar CSV — agregar transacciones a las existentes
-              const CATS_MAP = {"Ingreso":"ingresos","Gasto fijo":"gastos","Servicio":"servicios","Variable":"variables"};
-              upd(d=>{
-                const next = {...d};
-                importing.rows.forEach(row=>{
-                  const tipo = row.Tipo||row.tipo||"";
-                  const section = CATS_MAP[tipo];
-                  if(!section) return;
-                  const item = {
-                    id: uid(),
-                    nombre: row.Nombre||row.nombre||"",
-                    monto: Number(row.Monto||row.monto||0),
-                    categoria: row.Categoría||row.categoria||row["Categoría"]||"",
-                    fecha: row.Fecha||row.fecha||"",
-                    nota: row.Nota||row.nota||"",
-                    pagado: false,
-                  };
-                  if(item.nombre && item.monto) next[section] = [...(next[section]||[]), item];
+              // Importar CSV completo — reconstruir todas las secciones
+              const TIPO_MAP = {
+                "Ingreso":"ingresos","Gasto fijo":"gastos",
+                "Servicio":"servicios","Variable":"variables","Tarjeta":"tarjetas"
+              };
+              const newData = {...SEED_DATA()};
+              (importing.sections||[]).forEach(sec=>{
+                sec.rows.forEach(row=>{
+                  // Sección de items (ingresos, gastos, etc.)
+                  if(row.Tipo!==undefined){
+                    const section = TIPO_MAP[row.Tipo];
+                    if(!section) return;
+                    if(section==="tarjetas"){
+                      newData.tarjetas.push({
+                        id:uid(), nombre:row.Nombre||"", banco:row.Banco||"",
+                        saldo:Number(row.Monto||0), limite:Number(row.Limite||0),
+                        saldoCorte:Number(row.SaldoCorte||0)||null,
+                        _saldoCortePrev:Number(row.SaldoCorte||0)||0,
+                        corte:Number(row.Fecha||1), pagado:row.Pagado==="Si",
+                        icon:row.Icono||"", color:"",
+                      });
+                    } else {
+                      newData[section].push({
+                        id:uid(), nombre:row.Nombre||"", monto:Number(row.Monto||0),
+                        icono:row.Icono||"", icon:row.Icono||"",
+                        categoria:row.Categoria||row["Categoría"]||"",
+                        fecha:row.Fecha||"", nota:row.Nota||"",
+                        pagado:row.Pagado==="Si",
+                      });
+                    }
+                  }
+                  // Sección de historial
+                  if(row.Mes!==undefined){
+                    newData.historial.push({
+                      mes:row.Mes, ingresos:Number(row.Ingresos||0),
+                      gastosFijos:Number(row.GastosFijos||0), servicios:Number(row.Servicios||0),
+                      variables:Number(row.Variables||0), tarjetas:Number(row.Tarjetas||0),
+                      egresosReales:Number(row.EgresosReales||0),
+                      balanceReal:Number(row.BalanceReal||0),
+                      balanceProyectado:Number(row.BalanceProyectado||0),
+                      saldoArrastre:Number(row.SaldoArrastre||0),
+                    });
+                  }
+                  // Sección de ahorro
+                  if(row.Ahorro!==undefined){
+                    newData.ahorro = Number(row.Ahorro||0);
+                    newData.metaAhorro = Number(row.MetaAhorro||0);
+                    newData.saldoArrastre = Number(row.SaldoArrastre||0);
+                  }
                 });
-                return next;
               });
+              // Si no había secciones (CSV simple de otras apps), intentar importar filas planas
+              if(!importing.sections?.length){
+                importing.rows.forEach(row=>{
+                  const section = TIPO_MAP[row.Tipo||row.tipo||""];
+                  if(!section) return;
+                  newData[section].push({
+                    id:uid(), nombre:row.Nombre||row.nombre||"",
+                    monto:Number(row.Monto||row.monto||0),
+                    categoria:row.Categoria||row.categoria||row["Categoría"]||"",
+                    fecha:row.Fecha||row.fecha||"", nota:row.Nota||row.nota||"",
+                    pagado:false,
+                  });
+                });
+              }
+              upd(()=>newData);
+              sbSave(session.id, session.email, newData);
             }
             setImporting(null);
           }}/>
