@@ -2087,7 +2087,8 @@ export default function App() {
 
   // ─ TOTALS ─
   const I       = data.ingresos.reduce((s,x)=>s+x.monto,0);
-  const V       = data.variables.filter(x=>!x.esCargo).reduce((s,x)=>s+x.monto,0);
+  const V       = data.variables.reduce((s,x)=>s+x.monto,0); // total de todos los variables
+  const Vnocard = data.variables.filter(x=>!x.esCargo).reduce((s,x)=>s+x.monto,0); // solo los que restan del balance
   const GFtot   = data.gastos.reduce((s,x)=>s+x.monto,0);
   const SVtot   = data.servicios.reduce((s,x)=>s+x.monto,0);
   const TKtot   = data.tarjetas.reduce((s,x)=>s+(x.pagado?(x._saldoCortePrev||0):(x.saldoCorte||0)),0);
@@ -2096,8 +2097,8 @@ export default function App() {
   const SVpag   = data.servicios.filter(x=>x.pagado).reduce((s,x)=>s+x.monto,0);
   const TKpag   = data.tarjetas.filter(x=>x.pagado).reduce((s,x)=>s+(x._saldoCortePrev||0),0);
   const pendiente = (GFtot-GFpag)+(SVtot-SVpag)+(TKtot-TKpag);
-  const egReal  = GFpag+SVpag+TKpag+V;
-  const egProj  = GFtot+SVtot+TKtot+V;
+  const egReal  = GFpag+SVpag+TKpag+Vnocard;
+  const egProj  = GFtot+SVtot+TKtot+Vnocard;
   // Si saldoArrastre es 0 (meses cerrados antes de esta función),
   // toma el balanceReal del mes más reciente del historial como arrastre inicial
   const arrastre = data.saldoArrastre !== undefined && data.saldoArrastre !== 0
