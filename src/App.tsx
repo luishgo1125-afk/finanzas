@@ -1143,6 +1143,54 @@ function CreditCard({T, t, onEdit, onDelete, onToggle, onAddCharge, onSetCorte})
 }
 
 // ─── VAR ROW ─────────────────────────────────────────────────────────────────
+// Badge visual de método de pago
+function MetodoBadge({T, item}) {
+  const esTarjeta = item.metodo==="💳 Tarjeta" && item.tarjetaNombre;
+  const esEfectivo = item.metodo==="💵 Efectivo";
+  const esTransferencia = item.metodo==="🔄 Transferencia";
+
+  if(esTarjeta) return (
+    <span style={{display:"inline-flex",alignItems:"center",gap:4,
+      background:T.accentDim,borderRadius:5,padding:"2px 7px",
+      border:`1px solid ${T.border2}`}}>
+      {/* Mini tarjeta SVG */}
+      <svg width="13" height="9" viewBox="0 0 13 9" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0.5" y="0.5" width="12" height="8" rx="1.5" stroke={T.accent} strokeWidth="1"/>
+        <line x1="0.5" y1="3" x2="12.5" y2="3" stroke={T.accent} strokeWidth="1"/>
+        <rect x="1.5" y="5" width="3" height="1.5" rx="0.5" fill={T.accent}/>
+      </svg>
+      <span style={{fontSize:9,fontWeight:600,color:T.accent}}>{item.tarjetaNombre}</span>
+    </span>
+  );
+
+  if(esEfectivo) return (
+    <span style={{display:"inline-flex",alignItems:"center",gap:4,
+      background:T.greenDim,borderRadius:5,padding:"2px 7px",
+      border:`1px solid ${T.green}44`}}>
+      {/* Moneda SVG */}
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="5" cy="5" r="4.5" stroke={T.green} strokeWidth="1"/>
+        <text x="5" y="7.5" textAnchor="middle" fontSize="5" fill={T.green} fontFamily="serif" fontWeight="bold">$</text>
+      </svg>
+      <span style={{fontSize:9,fontWeight:600,color:T.green}}>Efectivo</span>
+    </span>
+  );
+
+  if(esTransferencia) return (
+    <span style={{display:"inline-flex",alignItems:"center",gap:4,
+      background:T.blueDim,borderRadius:5,padding:"2px 7px",
+      border:`1px solid ${T.blue}44`}}>
+      <svg width="11" height="9" viewBox="0 0 11 9" fill="none">
+        <path d="M1 3h7M6 1l2 2-2 2" stroke={T.blue} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M10 6H3M5 4l-2 2 2 2" stroke={T.blue} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+      <span style={{fontSize:9,fontWeight:600,color:T.blue}}>Transferencia</span>
+    </span>
+  );
+
+  return null;
+}
+
 function VarRow({T, item, onDelete, onEdit}) {
   return (
     <div className="fade-up" style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,
@@ -1150,15 +1198,11 @@ function VarRow({T, item, onDelete, onEdit}) {
       <span style={{fontSize:18,flexShrink:0,width:26,textAlign:"center"}}>{item.categoria?.split(" ")[0]||"·"}</span>
       <div style={{flex:1,minWidth:0}}>
         <div style={{fontSize:13,fontWeight:500,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.nombre}</div>
-        <div style={{fontSize:10,color:T.textSub,marginTop:2,display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+        <div style={{fontSize:10,color:T.textSub,marginTop:2,display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
           <span>{item.categoria?.split(" ").slice(1).join(" ")||"—"}</span>
           <span style={{color:T.border2}}>·</span>
           <span>{item.fecha||"—"}</span>
-          {item.tarjetaNombre&&(
-            <span style={{background:T.accentDim,color:T.accent,borderRadius:4,padding:"1px 5px",fontSize:9,fontWeight:500}}>
-              💳 {item.tarjetaNombre}
-            </span>
-          )}
+          <MetodoBadge T={T} item={item}/>
         </div>
         {item.nota&&<div style={{fontSize:10,color:T.textSub,marginTop:2,fontStyle:"italic"}}>{item.nota}</div>}
       </div>
@@ -1548,29 +1592,34 @@ function VarsTab({T, data, V, onAdd, onEdit, onDelete}) {
           + Gasto
         </button>
       </div>
-      {/* Indicadores secundarios */}
+      {/* Indicadores por método — dinámicos, incluye todos los métodos usados */}
       {data.variables.length>0&&(()=>{
-        const efectivo = data.variables.filter(x=>x.metodo==="💵 Efectivo").reduce((s,x)=>s+x.monto,0);
-        const tarjeta  = data.variables.filter(x=>x.metodo==="💳 Tarjeta").reduce((s,x)=>s+x.monto,0);
-        if(efectivo===0&&tarjeta===0) return null;
+        // Agrupar por método incluyendo "Sin método"
+        const metodosMap = {};
+        data.variables.forEach(x=>{
+          const m = x.metodo||"Sin método";
+          metodosMap[m] = (metodosMap[m]||0) + x.monto;
+        });
+        const metodos = Object.entries(metodosMap).filter(([,v])=>v>0);
+        if(metodos.length===0) return null;
+        // Emoji por método
+        const emojiMap = {"💵 Efectivo":"💵","💳 Tarjeta":"💳","🔄 Transferencia":"🔄","Sin método":"·"};
+        const labelMap = {"💵 Efectivo":"Efectivo","💳 Tarjeta":"Tarjeta","🔄 Transferencia":"Transferencia","Sin método":"Sin método"};
         return (
-          <div style={{display:"flex",gap:8,marginBottom:14}}>
-            {efectivo>0&&(
-              <div style={{flex:1,background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"10px 12px"}}>
-                <div style={{fontSize:9,color:T.textSub,letterSpacing:1,textTransform:"uppercase",marginBottom:3,display:"flex",alignItems:"center",gap:4}}>
-                  <span>💵</span> Efectivo
+          <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+            {metodos.map(([metodo,total])=>(
+              <div key={metodo} style={{flex:"1 1 calc(50% - 4px)",minWidth:120,
+                background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"10px 12px"}}>
+                <div style={{fontSize:9,color:T.textSub,letterSpacing:1,textTransform:"uppercase",
+                  marginBottom:3,display:"flex",alignItems:"center",gap:4}}>
+                  <span>{emojiMap[metodo]||"·"}</span>
+                  <span>{labelMap[metodo]||metodo.split(" ").slice(1).join(" ")||metodo}</span>
                 </div>
-                <div style={{fontFamily:"'DM Serif Display',serif",fontSize:15,color:T.textMid}}>{fmt(efectivo)}</div>
-              </div>
-            )}
-            {tarjeta>0&&(
-              <div style={{flex:1,background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"10px 12px"}}>
-                <div style={{fontSize:9,color:T.textSub,letterSpacing:1,textTransform:"uppercase",marginBottom:3,display:"flex",alignItems:"center",gap:4}}>
-                  <span>💳</span> Tarjeta
+                <div style={{fontFamily:"'DM Serif Display',serif",fontSize:15,color:T.textMid}}>
+                  {fmt(total)}
                 </div>
-                <div style={{fontFamily:"'DM Serif Display',serif",fontSize:15,color:T.textMid}}>{fmt(tarjeta)}</div>
               </div>
-            )}
+            ))}
           </div>
         );
       })()}
