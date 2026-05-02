@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 // ─── FONTS ────────────────────────────────────────────────────────────────────
 const FONTS = `https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap`;
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
-const fmt = n => new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN",maximumFractionDigits:0}).format(n);
+const fmt = n => new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN",minimumFractionDigits:2,maximumFractionDigits:2}).format(n);
 const uid = () => Math.random().toString(36).slice(2)+Date.now().toString(36);
 const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const hoyMes = () => { const d=new Date(); return `${MESES[d.getMonth()]} ${d.getFullYear()}`; };
@@ -313,7 +313,7 @@ function ColorPicker({T, value, onChange}) {
 }
 
 // ─── SHEET MODAL ─────────────────────────────────────────────────────────────
-function Sheet({T, title, fields, initial={}, onSave, onClose}) {
+function Sheet({T, title, fields, initial={}, onSave, onClose, tarjetaOpts=[]}) {
   const [form, setForm] = useState({...initial});
   const set = (k,v) => setForm(p=>({...p,[k]:v}));
   const valid = fields.filter(f=>f.req).every(f=>form[f.key]!==undefined&&form[f.key]!=="");
@@ -333,18 +333,36 @@ function Sheet({T, title, fields, initial={}, onSave, onClose}) {
             {f.type==="colorpicker"
               ? <ColorPicker T={T} value={form[f.key]||""} onChange={v=>set(f.key,v)}/>
               : f.type==="select"
-              ? <select value={form[f.key]||""} onChange={e=>set(f.key,e.target.value)}
+              ? <select value={form[f.key]||""} onChange={e=>{
+                  set(f.key,e.target.value);
+                  if(f.key==="metodo" && e.target.value!=="💳 Tarjeta") set("tarjetaNombre","");
+                }}
                   style={{...inputStyle,backgroundImage:"none",width:"100%"}}>
                   <option value="">Seleccionar...</option>
                   {f.opts.map(o=><option key={o} value={o}>{o}</option>)}
                 </select>
               : <input type={f.type||"text"} placeholder={f.ph||""}
                   value={form[f.key]!==undefined?form[f.key]:""}
-                  onChange={e=>set(f.key,f.type==="number"?Number(e.target.value):e.target.value)}
+                  onChange={e=>set(f.key,f.type==="number"?parseFloat(e.target.value)||0:e.target.value)}
+                  step={f.type==="number"?"0.01":undefined}
                   style={inputStyle}/>
             }
           </div>
         ))}
+        {/* Selector de tarjeta — solo cuando método es Tarjeta */}
+        {form.metodo==="💳 Tarjeta" && tarjetaOpts.length>0 && (
+          <div style={{marginBottom:16}}>
+            <label style={{fontSize:11,fontWeight:500,color:T.textSub,display:"block",marginBottom:6,letterSpacing:.5}}>
+              TARJETA
+            </label>
+            <select value={form.tarjetaNombre||""} onChange={e=>set("tarjetaNombre",e.target.value)}
+              style={{width:"100%",background:T.card,border:`1.5px solid ${T.accent}`,borderRadius:10,
+                padding:"11px 14px",fontSize:15,color:T.text,backgroundImage:"none"}}>
+              <option value="">Sin tarjeta específica</option>
+              {tarjetaOpts.map(o=><option key={o} value={o}>{o}</option>)}
+            </select>
+          </div>
+        )}
         <div style={{display:"flex",gap:8,marginTop:22}}>
           <button onClick={onClose} style={{flex:1,background:"transparent",border:`1px solid ${T.border2}`,
             borderRadius:10,padding:"13px 0",fontSize:14,color:T.textMid}}>Cancelar</button>
@@ -590,6 +608,8 @@ function AuthScreen({T, onLogin}) {
     users[key]={id:authUser.id,name:userName,email:key,pass};
     saveUsers(users);
     saveSession(s); onLogin(s,data);
+    // Ofrecer registrar Face ID si aún no está registrado
+    setTimeout(()=>registerFaceId(s.id), 500);
   };
 
   const handleForgot = async () => {
@@ -663,34 +683,103 @@ function AuthScreen({T, onLogin}) {
   };
 
   // Face ID / biométrico
+  // Helper: convertir ArrayBuffer a base64
+  const buf2b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+  const b642buf = b64 => Uint8Array.from(atob(b64), c=>c.charCodeAt(0));
+  const randBytes = n => crypto.getRandomValues(new Uint8Array(n));
+
   const handleFaceId = async () => {
     setErr("");
-    if(!window.PublicKeyCredential){setErr("Face ID no disponible en este dispositivo");return;}
+    // Verificar soporte
+    if(!window.PublicKeyCredential){
+      setErr("Face ID / huella no disponible en este dispositivo o navegador.");return;
+    }
+    const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().catch(()=>false);
+    if(!available){
+      setErr("Este dispositivo no tiene autenticador biométrico disponible.");return;
+    }
+
+    const credId = localStorage.getItem("fin_faceid_cred");
+    const userId = localStorage.getItem("fin_faceid_user");
+
+    // ── Si no hay credencial registrada → registrar ahora ──
+    if(!credId || !userId){
+      setErr("Para usar Face ID primero debes iniciar sesión con correo. Se registrará tu biométrico automáticamente.");
+      return;
+    }
+
+    // ── Autenticar con credencial existente ──
     try {
-      const users = getUsers();
-      const allUsers = Object.values(users);
-      // Buscar credencial guardada
-      const credId = localStorage.getItem("fin_faceid_cred");
-      if(!credId){setErr("No hay Face ID registrado. Inicia sesión con correo primero.");return;}
+      const challenge = randBytes(32);
       const assertion = await navigator.credentials.get({
         publicKey:{
-          challenge:new Uint8Array(32),
-          allowCredentials:[{type:"public-key",id:Uint8Array.from(atob(credId),c=>c.charCodeAt(0))}],
-          userVerification:"required",timeout:30000,
+          challenge,
+          rpId: window.location.hostname,
+          allowCredentials:[{
+            type:"public-key",
+            id: b642buf(credId),
+            transports:["internal"],
+          }],
+          userVerification:"required",
+          timeout:60000,
         }
       });
-      const userId = localStorage.getItem("fin_faceid_user");
-      const user = allUsers.find(u=>u.id===userId);
-      if(user){
-        const s={id:user.id,name:user.name,email:user.email};
-        saveSession(s);
-        const cloud = await loadCloudData(user.id);
-        const data = cloud || getUserData(user.id) || SEED_DATA();
-        if(cloud) saveUserData(user.id,cloud);
-        onLogin(s,data);
+      if(!assertion){ setErr("Autenticación cancelada."); return; }
+
+      // Buscar usuario por ID guardado
+      const cloudUser = await loadCloudData(userId);
+      const users = getUsers();
+      const localUser = Object.values(users).find(u=>u.id===userId);
+      if(!localUser && !cloudUser){ setErr("No se encontró la cuenta. Inicia sesión con correo."); return; }
+
+      const userName = localUser?.name || userId;
+      const userEmail = localUser?.email || "";
+      const s = {id:userId, name:userName, email:userEmail};
+      saveSession(s);
+      const data = cloudUser || getUserData(userId) || SEED_DATA();
+      onLogin(s, data);
+    } catch(e){
+      if(e.name==="NotAllowedError") setErr("Autenticación cancelada o no reconocida.");
+      else if(e.name==="InvalidStateError") setErr("Credencial no válida. Inicia sesión con correo para re-registrar Face ID.");
+      else { console.error("FaceID error:", e); setErr("Error de Face ID: "+e.message); }
+    }
+  };
+
+  // Registrar credencial biométrica después de login exitoso con correo
+  const registerFaceId = async (userId) => {
+    if(!window.PublicKeyCredential) return;
+    const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().catch(()=>false);
+    if(!available) return;
+    // Solo registrar si no hay credencial previa
+    if(localStorage.getItem("fin_faceid_cred")) return;
+    try {
+      const challenge = crypto.getRandomValues(new Uint8Array(32));
+      const userIdBytes = new TextEncoder().encode(userId.slice(0,64));
+      const cred = await navigator.credentials.create({
+        publicKey:{
+          challenge,
+          rp:{ id:window.location.hostname, name:"Mi Capital" },
+          user:{ id:userIdBytes, name:userId, displayName:"Mi Capital" },
+          pubKeyCredParams:[
+            {type:"public-key",alg:-7},   // ES256
+            {type:"public-key",alg:-257},  // RS256
+          ],
+          authenticatorSelection:{
+            authenticatorAttachment:"platform",
+            userVerification:"required",
+            residentKey:"preferred",
+          },
+          timeout:60000,
+        }
+      });
+      if(cred){
+        localStorage.setItem("fin_faceid_cred", buf2b64(cred.rawId));
+        localStorage.setItem("fin_faceid_user", userId);
+        console.log("✓ Face ID registrado");
       }
     } catch(e){
-      if(e.name!=="NotAllowedError") setErr("Error al autenticar con Face ID");
+      // Silencioso — no interrumpir el login si falla el registro de FaceID
+      console.log("FaceID registro omitido:", e.name);
     }
   };
 
@@ -1211,15 +1300,20 @@ function mCfg(s, tarjetas=[]) {
   if(s==="servicios")return {fields:base,title:"Nuevo servicio",editTitle:"Editar servicio"};
   if(s==="variables"){
     const tarjetaOpts = (tarjetas||[]).map(t=>`💳 ${t.nombre}`);
-    return {fields:[
-      {key:"nombre",label:"Descripción",req:true,ph:"Ej. Almuerzo"},
-      {key:"monto",label:"Monto ($)",type:"number",req:true,ph:"0"},
-      {key:"categoria",label:"Categoría",type:"select",opts:CATS},
-      {key:"metodo",label:"Método",type:"select",opts:METODOS},
-      ...(tarjetaOpts.length>0?[{key:"tarjetaNombre",label:"Tarjeta (si aplica)",type:"select",opts:tarjetaOpts}]:[]),
-      {key:"fecha",label:"Fecha",type:"date",ph:hoyStr()},
-      {key:"nota",label:"Nota",ph:"Opcional"},
-    ],title:"Gasto variable",editTitle:"Editar gasto"};
+    return {
+      fields:[
+        {key:"nombre",label:"Descripción",req:true,ph:"Ej. Almuerzo"},
+        {key:"monto",label:"Monto ($)",type:"number",req:true,ph:"0"},
+        {key:"categoria",label:"Categoría",type:"select",opts:CATS},
+        {key:"metodo",label:"Método",type:"select",opts:METODOS},
+        // tarjetaNombre se maneja dinámicamente en Sheet según el método seleccionado
+        {key:"fecha",label:"Fecha",type:"date",ph:hoyStr()},
+        {key:"nota",label:"Nota",ph:"Opcional"},
+      ],
+      tarjetaOpts, // pasar las opciones de tarjetas al Sheet
+      title:"Gasto variable",
+      editTitle:"Editar gasto"
+    };
   }
   if(s==="tarjetas") return {fields:[
     {key:"nombre",label:"Nombre",req:true,ph:"Visa Oro"},
@@ -1544,7 +1638,7 @@ function AhorroSection({T, ahorro, disponible, meta, onMover, onRetirar, onSetMe
   const [modo, setModo] = useState("mover");
   const [editMeta, setEditMeta] = useState(false);
   const [metaInput, setMetaInput] = useState(String(meta||""));
-  const val = Number(monto)||0;
+  const val = parseFloat(monto)||0;
   const maxMover = Math.max(0, disponible);
   const maxRetirar = ahorro;
   const canSubmit = modo==="mover" ? val>0&&val<=maxMover : val>0&&val<=maxRetirar;
@@ -1635,7 +1729,8 @@ function AhorroSection({T, ahorro, disponible, meta, onMover, onRetirar, onSetMe
         {modo==="mover" ? `Máximo: ${fmt(maxMover)}` : `Máximo: ${fmt(maxRetirar)}`}
       </div>
 
-      <input type="number" placeholder="0" value={monto}
+      <input type="number" placeholder="0.00" value={monto}
+        step="0.01"
         onChange={e=>setMonto(e.target.value)}
         style={{width:"100%",background:T.card,border:`1px solid ${T.border2}`,
           borderRadius:10,padding:"12px 14px",fontSize:18,color:T.text,
@@ -1787,6 +1882,7 @@ export default function App() {
   const [importing, setImporting]   = useState(null); // null | {type,preview,raw}
   const [pinLocked, setPinLocked]   = useState(false);  // muestra PinScreen
   const [settingPin, setSettingPin] = useState(false);  // muestra SetPinScreen
+  const [showFaceIdPrompt, setShowFaceIdPrompt] = useState(false);
 
   useEffect(()=>{
     (async()=>{
@@ -1871,6 +1967,12 @@ export default function App() {
     setSession(s); setData(d);
     // Si no tiene PIN aún, pedirle que lo defina
     if(!getPin(s.id)) setSettingPin(true);
+    // Si no tiene Face ID registrado y el dispositivo lo soporta, mostrar prompt
+    if(!localStorage.getItem("fin_faceid_cred") && window.PublicKeyCredential){
+      PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
+        .then(ok=>{ if(ok) setShowFaceIdPrompt(true); })
+        .catch(()=>{});
+    }
   };
   const logout = () => {saveSession(null);setSession(null);setData(null);setTab("resumen");setPinLocked(false);setSettingPin(false);};
   const upd = useCallback(fn=>setData(d=>fn(d)),[]);
@@ -1931,7 +2033,7 @@ export default function App() {
     if(section==="variables" && form.tarjetaNombre) {
       const tarjetaNombreClean = form.tarjetaNombre.replace("💳 ","");
       const tarjeta = data.tarjetas.find(t=>t.nombre===tarjetaNombreClean);
-      const monto = Number(form.monto)||0;
+      const monto = parseFloat(form.monto)||0;
       const varItem = {
         ...enriched, id:uid(),
         tarjetaId: tarjeta?.id||"",
@@ -1960,7 +2062,7 @@ export default function App() {
   const saveCharge = form => {
     const tid=sheet.tarjetaId;
     const tarjeta=data.tarjetas.find(x=>x.id===tid);
-    const monto=Number(form.monto);
+    const monto=parseFloat(form.monto)||0;
     const varGasto={id:uid(),nombre:form.descripcion,monto,categoria:form.categoria||"💳 Tarjeta",
       metodo:"💳 Tarjeta",fecha:form.fecha||hoyStr(),nota:form.nota||"",
       tarjetaId:tid,tarjetaNombre:tarjeta?.nombre||""};
@@ -1973,11 +2075,11 @@ export default function App() {
 
   const openAdd = s => {
     const c = mCfg(s, s==="variables" ? data.tarjetas : []);
-    setSheet({mode:"add",section:s,fields:c.fields,title:c.title});
+    setSheet({mode:"add",section:s,fields:c.fields,title:c.title,tarjetaOpts:c.tarjetaOpts||[]});
   };
   const openEdit = (s,item) => {
     const c = mCfg(s, s==="variables" ? data.tarjetas : []);
-    setSheet({mode:"edit",section:s,item,fields:c.fields,title:c.editTitle,initial:item});
+    setSheet({mode:"edit",section:s,item,fields:c.fields,title:c.editTitle,initial:item,tarjetaOpts:c.tarjetaOpts||[]});
   };
   const openAddCharge = tarjetaId => {const c=mCfg("cargo");setSheet({mode:"cargo",tarjetaId,fields:c.fields,title:c.title});};
   const openSetCorte  = tarjetaId => {
@@ -1991,7 +2093,7 @@ export default function App() {
   // ── BUG 2 CORREGIDO: tid definido + guarda _saldoCortePrev ──
   const saveSetCorte = form => {
     const tid=sheet.tarjetaId;
-    const amt=Number(form.saldoCorte)||0;
+    const amt=parseFloat(form.saldoCorte)||0;
     upd(d=>({...d,tarjetas:d.tarjetas.map(x=>x.id!==tid?x:{...x,saldoCorte:amt,_saldoCortePrev:amt})}));
     setSheet(null);
   };
@@ -2098,6 +2200,24 @@ export default function App() {
 
       <main style={{maxWidth:640,margin:"0 auto",padding:"18px 14px 80px"}}>
 
+        {showFaceIdPrompt&&(
+          <div className="fade-up" style={{background:T.surface,border:`1px solid ${T.border}`,
+            borderRadius:14,padding:"14px 16px",marginBottom:12,
+            display:"flex",alignItems:"center",gap:12}}>
+            <span style={{fontSize:22}}>🔒</span>
+            <div style={{flex:1}}>
+              <div style={{fontSize:13,fontWeight:500,color:T.text}}>Activar Face ID</div>
+              <div style={{fontSize:11,color:T.textSub}}>Entra más rápido con tu huella o cara</div>
+            </div>
+            <button onClick={async()=>{
+              await registerFaceId(session.id);
+              setShowFaceIdPrompt(false);
+            }} style={{background:T.accent,border:"none",borderRadius:8,padding:"7px 12px",
+              fontSize:12,fontWeight:600,color:"#fff"}}>Activar</button>
+            <button onClick={()=>setShowFaceIdPrompt(false)}
+              style={{background:"transparent",border:"none",color:T.textSub,fontSize:16,cursor:"pointer"}}>✕</button>
+          </div>
+        )}
         {tab==="resumen"&&(
           <div style={{display:"flex",flexDirection:"column",gap:12}} className="fade-in">
             <BalanceCard T={T} totalIngresos={I} balanceReal={balReal} balanceProyectado={balProj}
@@ -2332,7 +2452,7 @@ export default function App() {
         body="Se guardará el resumen del mes en el historial y se reiniciarán los pagos y gastos variables."
         ok="Cerrar mes" okColor={T.accent} onOk={cerrarMes} onCancel={()=>setClosingMonth(false)}/>}
       {sheet&&<Sheet T={T} title={sheet.title} fields={sheet.fields} initial={sheet.initial||{}}
-        onSave={sheetSave} onClose={()=>setSheet(null)}/>}
+        onSave={sheetSave} onClose={()=>setSheet(null)} tarjetaOpts={sheet.tarjetaOpts||[]}/>}
       {showConfig&&(
         <ConfigScreen T={T} session={session} data={data}
           onClose={()=>setShowConfig(false)}
