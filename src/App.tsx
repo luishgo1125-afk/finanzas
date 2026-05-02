@@ -316,7 +316,9 @@ function ColorPicker({T, value, onChange}) {
 function Sheet({T, title, fields, initial={}, onSave, onClose, tarjetaOpts=[]}) {
   const [form, setForm] = useState({...initial});
   const set = (k,v) => setForm(p=>({...p,[k]:v}));
-  const valid = fields.filter(f=>f.req).every(f=>form[f.key]!==undefined&&form[f.key]!=="");
+  const valid = fields.filter(f=>f.req).every(f=>form[f.key]!==undefined&&form[f.key]!=="")
+    // Si método es Tarjeta y hay opciones disponibles, debe seleccionarse una
+    && !(form.metodo==="💳 Tarjeta" && tarjetaOpts.length>0 && !form.tarjetaNombre);
   const inputStyle = {width:"100%",background:T.card,border:`1px solid ${T.border2}`,borderRadius:10,
     padding:"11px 14px",fontSize:15,color:T.text,boxSizing:"border-box"};
   return (
@@ -353,14 +355,20 @@ function Sheet({T, title, fields, initial={}, onSave, onClose, tarjetaOpts=[]}) 
         {form.metodo==="💳 Tarjeta" && tarjetaOpts.length>0 && (
           <div style={{marginBottom:16}}>
             <label style={{fontSize:11,fontWeight:500,color:T.textSub,display:"block",marginBottom:6,letterSpacing:.5}}>
-              TARJETA
+              TARJETA <span style={{color:T.red}}>*</span>
             </label>
             <select value={form.tarjetaNombre||""} onChange={e=>set("tarjetaNombre",e.target.value)}
-              style={{width:"100%",background:T.card,border:`1.5px solid ${T.accent}`,borderRadius:10,
-                padding:"11px 14px",fontSize:15,color:T.text,backgroundImage:"none"}}>
-              <option value="">Sin tarjeta específica</option>
+              style={{width:"100%",background:T.card,
+                border:`1.5px solid ${!form.tarjetaNombre?T.red:T.accent}`,
+                borderRadius:10,padding:"11px 14px",fontSize:15,color:T.text,backgroundImage:"none"}}>
+              <option value="">— Selecciona una tarjeta —</option>
               {tarjetaOpts.map(o=><option key={o} value={o}>{o}</option>)}
             </select>
+            {!form.tarjetaNombre&&(
+              <div style={{fontSize:11,color:T.red,marginTop:5}}>
+                Selecciona una tarjeta para continuar
+              </div>
+            )}
           </div>
         )}
         <div style={{display:"flex",gap:8,marginTop:22}}>
@@ -1015,9 +1023,13 @@ function ItemRow({T, item, valueColor, showPaid=false, onEdit, onDelete, onToggl
       <span style={{fontSize:19,flexShrink:0,width:28,textAlign:"center"}}>{item.icon||"·"}</span>
       <div style={{flex:1,minWidth:0}}>
         <div style={{fontSize:13,fontWeight:500,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.nombre}</div>
-        {showPaid&&<div style={{marginTop:3,display:"flex",alignItems:"center",gap:5}}>
+        {showPaid&&<div style={{marginTop:3,display:"flex",alignItems:"center",gap:6}}>
           <StatusDot active={item.pagado} T={T}/>
           <span style={{fontSize:10,color:T.textSub}}>{item.pagado?"Pagado":"Pendiente"}</span>
+          {item.dia&&<span style={{fontSize:10,color:T.textSub,display:"flex",alignItems:"center",gap:3}}>
+            <span style={{color:T.border2}}>·</span>
+            <span>Día {item.dia}</span>
+          </span>}
         </div>}
       </div>
       <div style={{fontFamily:"'DM Serif Display',serif",fontSize:15,color:vc,flexShrink:0}}>{fmt(item.monto)}</div>
@@ -1296,7 +1308,10 @@ function PendingAlert({T, items}) {
 function mCfg(s, tarjetas=[]) {
   const base = [{key:"icon",label:"Emoji",ph:"💰"},{key:"nombre",label:"Nombre",req:true,ph:"Ej. Netflix"},{key:"monto",label:"Monto ($)",type:"number",req:true,ph:"0"}];
   if(s==="ingresos") return {fields:base,title:"Nuevo ingreso",editTitle:"Editar ingreso"};
-  if(s==="gastos")   return {fields:base,title:"Nuevo gasto fijo",editTitle:"Editar gasto"};
+  if(s==="gastos") return {fields:[
+    ...base,
+    {key:"dia",label:"Día de pago (del mes)",type:"number",ph:"Ej. 15"},
+  ],title:"Nuevo gasto fijo",editTitle:"Editar gasto"};
   if(s==="servicios")return {fields:base,title:"Nuevo servicio",editTitle:"Editar servicio"};
   if(s==="variables"){
     const tarjetaOpts = (tarjetas||[]).map(t=>`💳 ${t.nombre}`);
@@ -1514,12 +1529,51 @@ function VarsTab({T, data, V, onAdd, onEdit, onDelete}) {
   const ordenados = [...filtrados].sort((a,b)=>{
     if(orden==="monto") return b.monto-a.monto;
     if(orden==="fecha") return (b.fecha||"").localeCompare(a.fecha||"");
+    if(orden==="fechaAsc") return (a.fecha||"").localeCompare(b.fecha||"");
     return (a.categoria||"").localeCompare(b.categoria||"");
   });
 
   return (
     <div className="fade-in">
-      <SecHead T={T} title="Gastos variables" total={V} color={T.red} count={data.variables.length} onAdd={onAdd} addLabel="Gasto"/>
+      {/* Header con 3 indicadores */}
+      <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",marginBottom:12}}>
+        <div>
+          <div style={{fontSize:10,color:T.textSub,letterSpacing:1.5,textTransform:"uppercase",marginBottom:4}}>
+            Gastos variables · {data.variables.length}
+          </div>
+          <div style={{fontFamily:"'DM Serif Display',serif",fontSize:26,color:T.red}}>{fmt(V)}</div>
+        </div>
+        <button onClick={onAdd} style={{background:"transparent",border:`1px solid ${T.border2}`,
+          borderRadius:9,padding:"8px 14px",fontSize:12,fontWeight:500,color:T.textMid}}>
+          + Gasto
+        </button>
+      </div>
+      {/* Indicadores secundarios */}
+      {data.variables.length>0&&(()=>{
+        const efectivo = data.variables.filter(x=>x.metodo==="💵 Efectivo").reduce((s,x)=>s+x.monto,0);
+        const tarjeta  = data.variables.filter(x=>x.metodo==="💳 Tarjeta").reduce((s,x)=>s+x.monto,0);
+        if(efectivo===0&&tarjeta===0) return null;
+        return (
+          <div style={{display:"flex",gap:8,marginBottom:14}}>
+            {efectivo>0&&(
+              <div style={{flex:1,background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"10px 12px"}}>
+                <div style={{fontSize:9,color:T.textSub,letterSpacing:1,textTransform:"uppercase",marginBottom:3,display:"flex",alignItems:"center",gap:4}}>
+                  <span>💵</span> Efectivo
+                </div>
+                <div style={{fontFamily:"'DM Serif Display',serif",fontSize:15,color:T.textMid}}>{fmt(efectivo)}</div>
+              </div>
+            )}
+            {tarjeta>0&&(
+              <div style={{flex:1,background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"10px 12px"}}>
+                <div style={{fontSize:9,color:T.textSub,letterSpacing:1,textTransform:"uppercase",marginBottom:3,display:"flex",alignItems:"center",gap:4}}>
+                  <span>💳</span> Tarjeta
+                </div>
+                <div style={{fontFamily:"'DM Serif Display',serif",fontSize:15,color:T.textMid}}>{fmt(tarjeta)}</div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Búsqueda */}
       <div style={{position:"relative",marginBottom:10}}>
@@ -1534,7 +1588,7 @@ function VarsTab({T, data, V, onAdd, onEdit, onDelete}) {
 
       {/* Orden */}
       <div style={{display:"flex",gap:6,marginBottom:14}}>
-        {[["cat","Categoría"],["monto","Mayor monto"],["fecha","Más reciente"]].map(([id,lbl])=>(
+        {[["cat","Categoría"],["monto","Mayor monto"],["fecha","Más reciente"],["fechaAsc","Más antiguo"]].map(([id,lbl])=>(
           <button key={id} onClick={()=>setOrden(id)}
             style={{background:orden===id?T.accent:T.card,border:`1px solid ${orden===id?T.accent:T.border}`,
               borderRadius:99,padding:"5px 12px",fontSize:11,fontWeight:orden===id?600:400,
