@@ -84,6 +84,8 @@ const sbSignUp = async (email, pass, name) => {
       emailRedirectTo: "https://finanzas-seven-theta.vercel.app",
     }
   });
+  if(error) console.error("sbSignUp error:", error);
+  else console.log("sbSignUp OK:", data?.user?.email, "confirmed:", data?.user?.email_confirmed_at);
   return {data, error};
 };
 
@@ -571,8 +573,13 @@ function AuthScreen({T, onLogin}) {
       setErr("Correo o contraseña incorrectos.");return;
     }
     const authUser = authData.user;
-    if(!authUser.email_confirmed_at){
-      setErr("Debes confirmar tu correo antes de entrar. Revisa tu bandeja de entrada.");return;
+    // Verificar confirmación — algunos configs de Supabase la omiten, forzamos el chequeo
+    const confirmed = authUser.email_confirmed_at || authUser.confirmed_at;
+    if(!confirmed){
+      // Reenviar email de confirmación
+      await sb.auth.resend({type:"signup", email:key});
+      setErr("⚠️ Debes confirmar tu correo antes de entrar. Te reenviamos el email de confirmación.");
+      return;
     }
     // Cargar o crear datos de la app
     const userName = authUser.user_metadata?.name || key;
@@ -588,9 +595,19 @@ function AuthScreen({T, onLogin}) {
   const handleForgot = async () => {
     setForgotMsg("");
     if(!emailValido(forgotEmail)){setForgotMsg("Correo inválido.");return;}
+    setForgotMsg("Enviando...");
     const {error} = await sbResetPassword(forgotEmail.toLowerCase().trim());
-    if(error) setForgotMsg("Error al enviar. Verifica el correo.");
-    else setForgotMsg("✓ Revisa tu correo para restablecer tu contraseña.");
+    if(error){
+      console.error("Reset error:", error);
+      // Si el usuario no está en Supabase Auth, mostrar mensaje informativo
+      if(error.message?.includes("not found") || error.message?.includes("User not found")){
+        setForgotMsg("Este correo no tiene cuenta en el nuevo sistema. Inicia sesión con correo y contraseña normalmente.");
+      } else {
+        setForgotMsg(`Error: ${error.message||"No se pudo enviar el correo."}`);
+      }
+    } else {
+      setForgotMsg("✓ Revisa tu correo. Si no llega en 2 minutos revisa spam.");
+    }
   };
 
   const handleRegister = async () => {
@@ -603,8 +620,14 @@ function AuthScreen({T, onLogin}) {
     // Registrar con Supabase Auth
     const {data:authData, error:authError} = await sbSignUp(key, pass, name.trim());
     if(authError){
-      if(authError.message.includes("already registered")) setErr("Ya existe una cuenta con ese correo.");
-      else setErr(authError.message||"Error al crear la cuenta.");
+      console.error("Register error:", authError);
+      if(authError.message?.includes("already registered") || authError.message?.includes("already been registered")){
+        setErr("Ya existe una cuenta con ese correo.");
+      } else if(authError.message?.includes("Password should be")){
+        setErr("La contraseña debe tener al menos 8 caracteres con mayúsculas, minúsculas y números.");
+      } else {
+        setErr(authError.message||"Error al crear la cuenta. Intenta de nuevo.");
+      }
       return;
     }
     setErr("");
@@ -1181,19 +1204,23 @@ function PendingAlert({T, items}) {
 }
 
 // ─── MODAL CONFIGS ────────────────────────────────────────────────────────────
-function mCfg(s) {
+function mCfg(s, tarjetas=[]) {
   const base = [{key:"icon",label:"Emoji",ph:"💰"},{key:"nombre",label:"Nombre",req:true,ph:"Ej. Netflix"},{key:"monto",label:"Monto ($)",type:"number",req:true,ph:"0"}];
   if(s==="ingresos") return {fields:base,title:"Nuevo ingreso",editTitle:"Editar ingreso"};
   if(s==="gastos")   return {fields:base,title:"Nuevo gasto fijo",editTitle:"Editar gasto"};
   if(s==="servicios")return {fields:base,title:"Nuevo servicio",editTitle:"Editar servicio"};
-  if(s==="variables")return {fields:[
-    {key:"nombre",label:"Descripción",req:true,ph:"Ej. Almuerzo"},
-    {key:"monto",label:"Monto ($)",type:"number",req:true,ph:"0"},
-    {key:"categoria",label:"Categoría",type:"select",opts:CATS},
-    {key:"metodo",label:"Método",type:"select",opts:METODOS},
-    {key:"fecha",label:"Fecha",type:"date",ph:hoyStr()},
-    {key:"nota",label:"Nota",ph:"Opcional"},
-  ],title:"Gasto variable",editTitle:"Editar gasto"};
+  if(s==="variables"){
+    const tarjetaOpts = (tarjetas||[]).map(t=>`💳 ${t.nombre}`);
+    return {fields:[
+      {key:"nombre",label:"Descripción",req:true,ph:"Ej. Almuerzo"},
+      {key:"monto",label:"Monto ($)",type:"number",req:true,ph:"0"},
+      {key:"categoria",label:"Categoría",type:"select",opts:CATS},
+      {key:"metodo",label:"Método",type:"select",opts:METODOS},
+      ...(tarjetaOpts.length>0?[{key:"tarjetaNombre",label:"Tarjeta (si aplica)",type:"select",opts:tarjetaOpts}]:[]),
+      {key:"fecha",label:"Fecha",type:"date",ph:hoyStr()},
+      {key:"nota",label:"Nota",ph:"Opcional"},
+    ],title:"Gasto variable",editTitle:"Editar gasto"};
+  }
   if(s==="tarjetas") return {fields:[
     {key:"nombre",label:"Nombre",req:true,ph:"Visa Oro"},
     {key:"banco",label:"Banco",ph:"BBVA"},
@@ -1855,7 +1882,7 @@ export default function App() {
 
   // ─ TOTALS ─
   const I       = data.ingresos.reduce((s,x)=>s+x.monto,0);
-  const V       = data.variables.reduce((s,x)=>s+x.monto,0);
+  const V       = data.variables.filter(x=>!x.esCargo).reduce((s,x)=>s+x.monto,0);
   const GFtot   = data.gastos.reduce((s,x)=>s+x.monto,0);
   const SVtot   = data.servicios.reduce((s,x)=>s+x.monto,0);
   const TKtot   = data.tarjetas.reduce((s,x)=>s+(x.pagado?(x._saldoCortePrev||0):(x.saldoCorte||0)),0);
@@ -1899,6 +1926,32 @@ export default function App() {
     const enriched = section==="tarjetas"
       ? {...form, _saldoCortePrev: Number(form.saldoCorte)||0}
       : form;
+
+    // Si es un gasto variable con tarjeta seleccionada
+    if(section==="variables" && form.tarjetaNombre) {
+      const tarjetaNombreClean = form.tarjetaNombre.replace("💳 ","");
+      const tarjeta = data.tarjetas.find(t=>t.nombre===tarjetaNombreClean);
+      const monto = Number(form.monto)||0;
+      const varItem = {
+        ...enriched, id:uid(),
+        tarjetaId: tarjeta?.id||"",
+        tarjetaNombre: tarjetaNombreClean,
+        esCargo: true, // marcado como cargo de tarjeta — no se resta del balance directo
+      };
+      upd(d=>({
+        ...d,
+        variables: mode==="add"
+          ? [...d.variables, varItem]
+          : d.variables.map(x=>x.id===item?.id?{...x,...varItem}:x),
+        // Sumar al saldo usado de la tarjeta
+        tarjetas: tarjeta ? d.tarjetas.map(t=>
+          t.id===tarjeta.id ? {...t, saldo: t.saldo + monto} : t
+        ) : d.tarjetas,
+      }));
+      setSheet(null);
+      return;
+    }
+
     if(mode==="add") upd(d=>({...d,[section]:[...d[section],{...enriched,id:uid(),pagado:false}]}));
     else upd(d=>({...d,[section]:d[section].map(x=>x.id===item.id?{...x,...enriched}:x)}));
     setSheet(null);
@@ -1918,8 +1971,14 @@ export default function App() {
     setSheet(null);
   };
 
-  const openAdd       = s => {const c=mCfg(s);setSheet({mode:"add",section:s,fields:c.fields,title:c.title});};
-  const openEdit      = (s,item) => {const c=mCfg(s);setSheet({mode:"edit",section:s,item,fields:c.fields,title:c.editTitle,initial:item});};
+  const openAdd = s => {
+    const c = mCfg(s, s==="variables" ? data.tarjetas : []);
+    setSheet({mode:"add",section:s,fields:c.fields,title:c.title});
+  };
+  const openEdit = (s,item) => {
+    const c = mCfg(s, s==="variables" ? data.tarjetas : []);
+    setSheet({mode:"edit",section:s,item,fields:c.fields,title:c.editTitle,initial:item});
+  };
   const openAddCharge = tarjetaId => {const c=mCfg("cargo");setSheet({mode:"cargo",tarjetaId,fields:c.fields,title:c.title});};
   const openSetCorte  = tarjetaId => {
     const t=data.tarjetas.find(x=>x.id===tarjetaId);
